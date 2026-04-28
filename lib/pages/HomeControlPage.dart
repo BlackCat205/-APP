@@ -9,6 +9,7 @@ import '../services/usage_record_service.dart';
 import 'smell_memory/smell_save_popup.dart';
 import 'fan_timer_page.dart';
 import 'fan_scent_config_page.dart';
+import '../models/usage_record.dart';
 
 class HomeControlPage extends StatefulWidget {
   const HomeControlPage({super.key});
@@ -249,8 +250,42 @@ class _HomeControlPageState extends State<HomeControlPage> {
     final hasActiveFan = _fanStates.any((state) => state);
     // 如果没有风扇开启且有进行中的记录，结束记录
     if (!hasActiveFan && UsageRecordService.hasActiveRecord()) {
-      await UsageRecordService.endRecord();
+      final record = await UsageRecordService.endRecord();
+      // 如果使用时间大于1分钟，触发气味瞬间收集弹窗
+      if (record != null && record.duration != null && record.duration! > 60) {
+        _showSmellSavePopup(record);
+      }
     }
+  }
+
+  /// 显示气味瞬间保存弹窗
+  void _showSmellSavePopup(UsageRecord record) {
+    // 解析气味组合
+    final scents = record.scentCombo?.split('+') ?? [];
+    
+    // 格式化时长显示
+    int seconds = record.duration ?? 0;
+    int hours = seconds ~/ 3600;
+    int minutes = (seconds % 3600) ~/ 60;
+    int secs = seconds % 60;
+    String durationStr;
+    if (hours > 0) {
+      durationStr = '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
+    } else {
+      durationStr = '${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return SmellSavePopup(
+          recipeList: scents,
+          duration: durationStr,
+          recordId: record.id,
+        );
+      },
+    );
   }
 
   // 测试触发按钮

@@ -6,7 +6,9 @@ import '../../database/database_helper.dart';
 
 /// 气味瞬间编辑页
 class SmellEditPage extends StatefulWidget {
-  const SmellEditPage({Key? key}) : super(key: key);
+  final int? recordId; // 使用记录ID
+
+  const SmellEditPage({Key? key, this.recordId}) : super(key: key);
 
   @override
   State<SmellEditPage> createState() => _SmellEditPageState();
@@ -407,19 +409,25 @@ class _SmellEditPageState extends State<SmellEditPage> {
   /// 更新 usage_records 表
   Future<void> _updateUsageRecord() async {
     try {
-      // 获取最新的使用记录
-      final records = await UsageRecordService.getAllRecords(limit: 1);
-      if (records.isNotEmpty) {
-        final latestRecord = records.first;
-        await UsageRecordService.addSceneAndEmotion(
-          recordId: latestRecord.id!,
-          sceneTag: _selectedScene,
-          emotionEmoji: _selectedEmoji,
-        );
-        print(
-          '✅ 已同步更新 usage_records: scene=$_selectedScene, emoji=$_selectedEmoji',
-        );
+      int recordIdToUpdate;
+
+      // 优先使用传入的 recordId，否则获取最新的使用记录
+      if (widget.recordId != null) {
+        recordIdToUpdate = widget.recordId!;
+      } else {
+        final records = await UsageRecordService.getAllRecords(limit: 1);
+        if (records.isEmpty) return;
+        recordIdToUpdate = records.first.id!;
       }
+
+      await UsageRecordService.addSceneAndEmotion(
+        recordId: recordIdToUpdate,
+        sceneTag: _selectedScene,
+        emotionEmoji: _selectedEmoji,
+      );
+      print(
+        '✅ 已同步更新 usage_records: recordId=$recordIdToUpdate, scene=$_selectedScene, emoji=$_selectedEmoji',
+      );
     } catch (e) {
       print('更新 usage_records 失败: $e');
     }

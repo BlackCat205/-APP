@@ -52,7 +52,7 @@ dependencies:
   sqflite: ^2.3.3
   # Path provider for database file location
   sqflite_common_ffi: ^2.3.0
-  sqlite3_flutter_libs: ^0.5.18
+
   path_provider: ^2.1.3
   # UUID generator
   uuid: ^4.4.0
