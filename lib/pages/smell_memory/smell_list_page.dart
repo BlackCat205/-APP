@@ -274,7 +274,7 @@ class _SmellListPageState extends State<SmellListPage>
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
-            Navigator.pushReplacementNamed(context, '/');
+            Navigator.pop(context);
           },
         ),
       ),

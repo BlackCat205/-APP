@@ -227,6 +227,7 @@ class _EmotionWeekReportPageState extends State<EmotionWeekReportPage> {
         backgroundColor: const Color(0xFFF5F0EB),
         elevation: 0,
         centerTitle: true,
+        automaticallyImplyLeading: false,
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -310,18 +311,24 @@ class _EmotionWeekReportPageState extends State<EmotionWeekReportPage> {
                             ],
                           ),
                           const SizedBox(height: 16),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          Column(
                             children: [
-                              _buildSummaryItem(
-                                '总使用次数',
-                                '${_summary['totalCount'] ?? 0}',
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceAround,
+                                children: [
+                                  _buildSummaryItem(
+                                    '总使用次数',
+                                    '${_summary['totalCount'] ?? 0}',
+                                  ),
+                                  _buildSummaryItem(
+                                    'TOP1场景',
+                                    '${_summary['topScene'] ?? '无'}',
+                                  ),
+                                ],
                               ),
-                              _buildSummaryItem(
-                                'TOP1场景',
-                                '${_summary['topScene'] ?? '无'}',
-                              ),
-                              _buildSummaryItem(
+                              const SizedBox(height: 12),
+                              _buildConclusionItem(
                                 '系统结论',
                                 '${_summary['conclusion'] ?? '无'}',
                               ),
@@ -399,6 +406,32 @@ class _EmotionWeekReportPageState extends State<EmotionWeekReportPage> {
             fontSize: 16,
             fontWeight: FontWeight.w600,
             color: const Color(0xFF2D2D2D),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 构建系统结论项（支持文字换行）
+  Widget _buildConclusionItem(String label, String value) {
+    return Column(
+      children: [
+        Text(
+          label,
+          style: TextStyle(fontSize: 12, color: const Color(0xFF8C8C8C)),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          child: Text(
+            value,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: const Color(0xFF2D2D2D),
+            ),
+            textAlign: TextAlign.center,
+            softWrap: true,
           ),
         ),
       ],

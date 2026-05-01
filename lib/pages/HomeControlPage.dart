@@ -6,6 +6,8 @@ import '../services/bluetooth_service.dart';
 import '../services/care_service.dart';
 import '../services/fan_scent_service.dart';
 import '../services/usage_record_service.dart';
+import '../database/database_helper.dart';
+import '../database/app_database.dart';
 import 'smell_memory/smell_save_popup.dart';
 import 'fan_timer_page.dart';
 import 'fan_scent_config_page.dart';
@@ -186,6 +188,8 @@ class _HomeControlPageState extends State<HomeControlPage> {
 
   // 切换风扇开关
   void _toggleFan(int index, bool value) async {
+    final fanId = index + 1; // 风扇ID从1开始
+
     if (value) {
       // 开启风扇
       switch (index) {
@@ -202,8 +206,8 @@ class _HomeControlPageState extends State<HomeControlPage> {
           await _sendCommand(BluetoothService.fan4On, '风扇4 已开启');
           break;
       }
-      // 自动开始使用记录
-      await _startUsageRecord();
+      // 开始单个风扇的使用记录
+      await UsageRecordService.startRecord(fanId);
     } else {
       // 关闭风扇
       switch (index) {
@@ -220,60 +224,81 @@ class _HomeControlPageState extends State<HomeControlPage> {
           await _sendCommand(BluetoothService.fan4Off, '风扇4 已关闭');
           break;
       }
-      // 自动结束使用记录
-      await _endUsageRecord();
+      // 结束单个风扇的使用记录
+      await UsageRecordService.endRecord(fanId);
     }
     // 更新本地状态（乐观更新）
     setState(() {
       _fanStates[index] = value;
     });
+
+    // 检查是否所有风扇都已关闭
+    await _checkAllFansOff();
   }
 
-  // 开始自动记录
-  Future<void> _startUsageRecord() async {
-    // 获取当前开启的风扇
-    final activeFans = <int>[];
-    for (int i = 0; i < 4; i++) {
-      if (_fanStates[i]) {
-        activeFans.add(i + 1);
-      }
-    }
-    // 如果有风扇开启，开始记录
-    if (activeFans.isNotEmpty) {
-      await UsageRecordService.startRecord(activeFans);
-    }
-  }
-
-  // 结束自动记录
-  Future<void> _endUsageRecord() async {
+  /// 检查所有风扇是否已关闭
+  Future<void> _checkAllFansOff() async {
     // 检查是否还有风扇开启
     final hasActiveFan = _fanStates.any((state) => state);
-    // 如果没有风扇开启且有进行中的记录，结束记录
-    if (!hasActiveFan && UsageRecordService.hasActiveRecord()) {
-      final record = await UsageRecordService.endRecord();
-      // 如果使用时间大于1分钟，触发气味瞬间收集弹窗
-      if (record != null && record.duration != null && record.duration! > 60) {
-        _showSmellSavePopup(record);
+
+    // 如果所有风扇都已关闭
+    if (!hasActiveFan) {
+      // 获取上次气味瞬间记录的时间戳（用于判定"本次使用"的起始时间）
+      final lastMomentTimestamp = await SmellMomentRecordService.getLastMomentRecordTimestamp();
+
+      // 获取今日所有使用记录
+      final allTodayRecords = await UsageRecordService.getTodayRecords();
+
+      // 筛选"本次使用"记录：createdAt > 上次弹窗时间戳 且 时长 > 60秒
+      final validRecords = allTodayRecords
+          .where((r) =>
+              r.createdAt != null &&
+              r.createdAt! > lastMomentTimestamp &&
+              r.duration != null &&
+              r.duration! > 60)
+          .toList();
+
+      print('🧪 本次使用判定：上次弹窗时间=$lastMomentTimestamp, 找到${validRecords.length}条有效记录');
+
+      // 如果有有效的使用记录，触发弹窗
+      if (validRecords.isNotEmpty) {
+        _showSmellSavePopup(validRecords);
       }
     }
   }
 
   /// 显示气味瞬间保存弹窗
-  void _showSmellSavePopup(UsageRecord record) {
-    // 解析气味组合
-    final scents = record.scentCombo?.split('+') ?? [];
-    
+  void _showSmellSavePopup(List<UsageRecord> records) {
+    // 收集本次使用的风扇对应的气味（按风扇ID去重，避免重复显示）
+    final scentMap = <int, String>{};
+    for (final record in records) {
+      if (record.scentName != null && record.scentName!.isNotEmpty) {
+        scentMap.putIfAbsent(record.fanId, () => record.scentName!);
+      }
+    }
+    final scents = scentMap.values.toList();
+
+    // 计算总时长
+    int totalSeconds = records.fold(0, (sum, r) => sum + (r.duration ?? 0));
+
     // 格式化时长显示
-    int seconds = record.duration ?? 0;
-    int hours = seconds ~/ 3600;
-    int minutes = (seconds % 3600) ~/ 60;
-    int secs = seconds % 60;
+    int hours = totalSeconds ~/ 3600;
+    int minutes = (totalSeconds % 3600) ~/ 60;
+    int secs = totalSeconds % 60;
     String durationStr;
     if (hours > 0) {
-      durationStr = '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
+      durationStr =
+          '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
     } else {
-      durationStr = '${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
+      durationStr =
+          '${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
     }
+
+    // 收集所有使用记录ID
+    final recordIds = records
+        .where((r) => r.id != null)
+        .map((r) => r.id!)
+        .toList();
 
     showModalBottomSheet(
       context: context,
@@ -282,38 +307,120 @@ class _HomeControlPageState extends State<HomeControlPage> {
         return SmellSavePopup(
           recipeList: scents,
           duration: durationStr,
-          recordId: record.id,
+          recordIds: recordIds,
         );
       },
     );
   }
 
-  // 测试触发按钮
-  void _testTrigger() {
-    // 自动记录气味使用行为
-    CareService.recordUsage(
-      scene: '疲惫舒缓',
-      emotion: '😌',
-      duration: 332, // 5分32秒
-    );
+  // 测试触发按钮 - 模拟真实使用流程
+  Future<void> _testTrigger() async {
+    // 1. 模拟开启风扇 1、3、4（使用时长超过 60 秒）
+    final activeFans = [1, 3, 4];
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) {
-        return SmellSavePopup(
-          recipeList: ['薰衣草', '檀香', '雪松'],
-          duration: '00:05:32',
+    // 2. 获取当前气味配置（从数据库获取最新配置）
+    final dbHelper = DatabaseHelper();
+    final configs = await dbHelper.getAllFanConfigs();
+    final scentMap = <int, String>{};
+    for (var config in configs) {
+      final fanId = config['fan_id'] as int;
+      final scentName = config['scent_name'] as String?;
+      if (scentName != null && scentName.isNotEmpty) {
+        scentMap[fanId] = scentName;
+      }
+    }
+
+    print('🧪 测试：当前气味配置');
+    scentMap.forEach((fanId, scent) {
+      print('  - 风扇$fanId: $scent');
+    });
+
+    // 3. 模拟开始记录（为每个风扇创建使用记录）
+    for (final fanId in activeFans) {
+      await UsageRecordService.startRecord(fanId);
+    }
+
+    // 4. 模拟使用一段时间（快速测试：等待 2 秒，然后手动修改记录时长为 65 秒）
+    print('🧪 测试：开始模拟使用...');
+    await Future.delayed(const Duration(seconds: 2));
+
+    // 5. 模拟关闭所有风扇
+    print('🧪 测试：关闭所有风扇');
+    for (final fanId in activeFans) {
+      await UsageRecordService.endRecord(fanId);
+    }
+
+    // 6. 手动修改记录时长为 65 秒（模拟真实使用超过 60 秒）
+    print('🧪 测试：模拟使用时长超过 60 秒');
+    final db = await AppDatabase().database;
+    for (final fanId in activeFans) {
+      // 获取最新的记录并更新时长
+      final records = await db.query(
+        'usage_records',
+        where: 'fan_id = ? AND end_time IS NOT NULL',
+        whereArgs: [fanId],
+        orderBy: 'end_time DESC',
+        limit: 1,
+      );
+
+      if (records.isNotEmpty) {
+        final recordId = records.first['id'] as int;
+        await db.update(
+          'usage_records',
+          {'duration': 65}, // 设置为 65 秒
+          where: 'id = ?',
+          whereArgs: [recordId],
         );
-      },
-    );
+      }
+    }
+
+    // 7. 检查是否触发弹窗（只获取本次创建风扇的记录，筛选时长>60 秒的）
+    final now = DateTime.now();
+    final startOfDay = DateTime(
+      now.year,
+      now.month,
+      now.day,
+    ).millisecondsSinceEpoch;
+    final endOfDay = startOfDay + 24 * 60 * 60 * 1000;
+
+    final validRecords = <UsageRecord>[];
+    for (final fanId in activeFans) {
+      final records = await db.query(
+        'usage_records',
+        where:
+            'fan_id = ? AND start_time >= ? AND start_time < ? AND end_time IS NOT NULL AND duration > 60',
+        whereArgs: [fanId, startOfDay, endOfDay],
+        orderBy: 'start_time DESC',
+        limit: 1,
+      );
+      if (records.isNotEmpty) {
+        validRecords.add(UsageRecord.fromMap(records.first));
+      }
+    }
+
+    print('🧪 测试：找到${validRecords.length}条有效记录');
+    for (var record in validRecords) {
+      print(
+        '  - 风扇${record.fanId}: ${record.scentName}, 时长${record.duration}秒',
+      );
+    }
+
+    // 8. 如果有有效记录，触发弹窗
+    if (validRecords.isNotEmpty) {
+      _showSmellSavePopup(validRecords);
+    } else {
+      // 没有有效记录，显示提示
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('测试失败：没有符合条件的记录')));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('情绪香薰控制中心')),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -423,6 +530,7 @@ class _HomeControlPageState extends State<HomeControlPage> {
                 padding: const EdgeInsets.symmetric(vertical: 12),
               ),
             ),
+            const SizedBox(height: 24),
           ],
         ),
       ),

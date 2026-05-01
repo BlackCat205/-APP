@@ -4,6 +4,7 @@ import 'SystemSettingsPage.dart';
 import 'LoginPage.dart';
 import 'AIScentAssistantPage.dart';
 import 'scent_memory/scent_memory_page.dart';
+import 'smell_memory/smell_list_page.dart';
 import 'care_history_page.dart';
 import 'database_viewer_page.dart';
 import '../providers/user_provider.dart';
@@ -252,12 +253,12 @@ class _ProfilePageState extends State<ProfilePage> {
           const SizedBox(height: kDefaultPadding),
           const Divider(height: 1, color: Colors.grey),
           const SizedBox(height: kDefaultPadding),
-          // 气味关怀
+          // 气味记忆
           _buildSettingItem(
-            title: '气味关怀',
+            title: '气味记忆',
             onTap: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (context) => const CareHistoryPage()),
+              MaterialPageRoute(builder: (context) => SmellListPage()),
             ),
           ),
           const SizedBox(height: kDefaultPadding),

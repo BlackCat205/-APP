@@ -34,6 +34,7 @@ class _CareHistoryPageState extends State<CareHistoryPage> {
         backgroundColor: const Color(0xFFF5F0EB),
         elevation: 0,
         centerTitle: true,
+        automaticallyImplyLeading: false,
       ),
       body: Column(
         children: [

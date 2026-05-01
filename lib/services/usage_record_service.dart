@@ -3,97 +3,103 @@ import '../database/app_database.dart';
 import '../models/usage_record.dart';
 import 'fan_scent_service.dart';
 
-/// 使用记录服务 - 自动记录风扇开关行为
+/// 使用记录服务 - 自动记录单个风扇开关行为
 /// 使用统一的 AppDatabase
 class UsageRecordService {
-  static UsageRecord? _activeRecord;
+  // 存储每个风扇的活跃记录 {fanId: UsageRecord}
+  static Map<int, UsageRecord> _activeRecords = {};
 
   /// 获取数据库
   static Future<Database> get _database async => AppDatabase().database;
 
-  /// 开始记录 - 开启风扇时调用
-  static Future<void> startRecord(List<int> fanIds) async {
-    if (fanIds.isEmpty) return;
+  /// 开始记录 - 开启单个风扇时调用
+  static Future<void> startRecord(int fanId) async {
+    if (fanId < 1 || fanId > 4) return;
 
     try {
-      // 如果有未结束的记录，先结束它
-      if (_activeRecord != null) {
-        await endRecord();
+      // 如果该风扇已有未结束的记录，先结束它
+      if (_activeRecords.containsKey(fanId)) {
+        await endRecord(fanId);
       }
 
       final now = DateTime.now().millisecondsSinceEpoch;
-      _activeRecord = UsageRecord(
+      final scentName = FanScentService.getFanScent(fanId);
+
+      _activeRecords[fanId] = UsageRecord(
         startTime: now,
-        fanIds: fanIds.join(','),
+        fanId: fanId,
+        scentName: scentName,
         createdAt: now,
       );
 
-      print('📊 开始记录: 风扇${_activeRecord!.fanIds}');
+      print('📊 开始记录风扇$fanId: $scentName');
     } catch (e) {
       print('开始记录失败: $e');
     }
   }
 
-  /// 结束记录 - 关闭风扇时调用
-  static Future<UsageRecord?> endRecord() async {
-    if (_activeRecord == null) return null;
+  /// 结束记录 - 关闭单个风扇时调用
+  static Future<UsageRecord?> endRecord(int fanId) async {
+    if (!_activeRecords.containsKey(fanId)) return null;
 
     try {
       final now = DateTime.now().millisecondsSinceEpoch;
-      final duration = ((now - _activeRecord!.startTime) / 1000).round();
-
-      // 获取气味组合
-      final fanIdList = _activeRecord!.fanIds
-          .split(',')
-          .map(int.parse)
-          .toList();
-      final scents = fanIdList
-          .map((id) => FanScentService.getFanScent(id))
-          .toList();
-      final scentCombo = scents.join('+');
+      final record = _activeRecords[fanId]!;
+      final duration = ((now - record.startTime) / 1000).round();
 
       // 补全记录
-      final completedRecord = _activeRecord!.copyWith(
-        endTime: now,
-        duration: duration,
-        scentCombo: scentCombo,
-      );
+      final completedRecord = record.copyWith(endTime: now, duration: duration);
 
       // 保存到数据库
       final db = await _database;
-      await db.insert('usage_records', completedRecord.toMap());
-
-      print(
-        '📊 结束记录: ${completedRecord.fanIds}, 时长${duration}秒, 气味:$scentCombo',
+      final insertId = await db.insert(
+        'usage_records',
+        completedRecord.toMap(),
       );
 
-      _activeRecord = null;
-      return completedRecord;
+      // 设置返回记录的id
+      final result = completedRecord.copyWith(id: insertId);
+
+      print('📊 结束记录风扇$fanId: 时长${duration}秒, 气味:${record.scentName}');
+
+      _activeRecords.remove(fanId);
+      return result;
     } catch (e) {
       print('结束记录失败: $e');
-      _activeRecord = null;
+      _activeRecords.remove(fanId);
       return null;
     }
   }
 
-  /// 添加场景标签和情绪
-  static Future<void> addSceneAndEmotion({
-    required int recordId,
-    String? sceneTag,
-    String? emotionEmoji,
-  }) async {
-    try {
-      final db = await _database;
-      await db.update(
-        'usage_records',
-        {'scene_tag': sceneTag, 'emotion_emoji': emotionEmoji},
-        where: 'id = ?',
-        whereArgs: [recordId],
-      );
-    } catch (e) {
-      print('添加场景和情绪失败: $e');
+  /// 结束所有活跃记录
+  static Future<List<UsageRecord>> endAllRecords() async {
+    final completedRecords = <UsageRecord>[];
+
+    for (final fanId in List.from(_activeRecords.keys)) {
+      final record = await endRecord(fanId);
+      if (record != null) {
+        completedRecords.add(record);
+      }
     }
+
+    return completedRecords;
   }
+
+  /// 检查是否有进行中的记录
+  static bool hasActiveRecord() => _activeRecords.isNotEmpty;
+
+  /// 检查指定风扇是否有进行中的记录
+  static bool hasActiveRecordForFan(int fanId) =>
+      _activeRecords.containsKey(fanId);
+
+  /// 获取所有进行中的记录
+  static List<UsageRecord> getActiveRecords() => _activeRecords.values.toList();
+
+  /// 获取指定风扇的进行中记录
+  static UsageRecord? getActiveRecord(int fanId) => _activeRecords[fanId];
+
+  /// 获取活跃风扇数量
+  static int get activeFanCount => _activeRecords.length;
 
   /// 查询今日记录
   static Future<List<UsageRecord>> getTodayRecords() async {
@@ -175,6 +181,26 @@ class UsageRecordService {
     }
   }
 
+  /// 根据ID列表查询记录
+  static Future<List<UsageRecord>> getRecordsByIds(List<int> ids) async {
+    if (ids.isEmpty) return [];
+
+    try {
+      final db = await _database;
+      final placeholders = ids.map((_) => '?').join(',');
+      final maps = await db.query(
+        'usage_records',
+        where: 'id IN ($placeholders)',
+        whereArgs: ids,
+      );
+
+      return maps.map((m) => UsageRecord.fromMap(m)).toList();
+    } catch (e) {
+      print('根据ID查询记录失败: $e');
+      return [];
+    }
+  }
+
   /// 获取今日总使用时长（秒）
   static Future<int> getTodayTotalDuration() async {
     try {
@@ -196,10 +222,113 @@ class UsageRecordService {
       return 0;
     }
   }
+}
 
-  /// 检查是否有进行中的记录
-  static bool hasActiveRecord() => _activeRecord != null;
+/// 气味瞬间记录服务 - 存储弹窗收集的数据
+class SmellMomentRecordService {
+  /// 获取数据库
+  static Future<Database> get _database async => AppDatabase().database;
 
-  /// 获取当前进行中的记录
-  static UsageRecord? getActiveRecord() => _activeRecord;
+  /// 保存气味瞬间记录
+  static Future<int> insertRecord({
+    String? title,
+    String? sceneTag,
+    String? emotionEmoji,
+    String? note,
+    String? scentCombo,
+  }) async {
+    try {
+      final db = await _database;
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      final id = await db.insert('smell_moment_record', {
+        'title': title ?? '未命名',
+        'scene_tag': sceneTag,
+        'emotion_emoji': emotionEmoji,
+        'note': note,
+        'scent_combo': scentCombo,
+        'created_at': now,
+      });
+
+      print('📝 保存气味瞬间记录: title=$title, scentCombo=$scentCombo');
+      return id;
+    } catch (e) {
+      print('保存气味瞬间记录失败: $e');
+      return -1;
+    }
+  }
+
+  /// 查询所有气味瞬间记录
+  static Future<List<Map<String, dynamic>>> getAllRecords() async {
+    try {
+      final db = await _database;
+      return await db.query('smell_moment_record', orderBy: 'created_at DESC');
+    } catch (e) {
+      print('查询气味瞬间记录失败: $e');
+      return [];
+    }
+  }
+
+  /// 根据使用记录ID查询气味瞬间记录
+  static Future<List<Map<String, dynamic>>> getByUsageRecordId(
+    int usageRecordId,
+  ) async {
+    try {
+      final db = await _database;
+      return await db.query(
+        'smell_moment_record',
+        where: 'usage_record_ids LIKE ?',
+        whereArgs: ['%$usageRecordId%'],
+        orderBy: 'created_at DESC',
+      );
+    } catch (e) {
+      print('查询气味瞬间记录失败: $e');
+      return [];
+    }
+  }
+
+  /// 获取上次气味瞬间记录的时间戳（用于判定"本次使用"的起始时间）
+  /// 如果没有历史记录，返回0（表示获取所有今日记录）
+  static Future<int> getLastMomentRecordTimestamp() async {
+    try {
+      final db = await _database;
+      final result = await db.query(
+        'smell_moment_record',
+        columns: ['created_at'],
+        orderBy: 'created_at DESC',
+        limit: 1,
+      );
+      if (result.isNotEmpty) {
+        return result.first['created_at'] as int;
+      }
+      return 0;
+    } catch (e) {
+      print('获取上次气味瞬间记录时间戳失败: $e');
+      return 0;
+    }
+  }
+
+  /// 查询今日记录
+  static Future<List<Map<String, dynamic>>> getTodayRecords() async {
+    try {
+      final db = await _database;
+      final now = DateTime.now();
+      final startOfDay = DateTime(
+        now.year,
+        now.month,
+        now.day,
+      ).millisecondsSinceEpoch;
+      final endOfDay = startOfDay + 24 * 60 * 60 * 1000;
+
+      return await db.query(
+        'smell_moment_record',
+        where: 'created_at >= ? AND created_at < ?',
+        whereArgs: [startOfDay, endOfDay],
+        orderBy: 'created_at DESC',
+      );
+    } catch (e) {
+      print('查询今日气味瞬间记录失败: $e');
+      return [];
+    }
+  }
 }

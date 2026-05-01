@@ -333,7 +333,7 @@ class _FanTimerPageState extends State<FanTimerPage> {
         elevation: 0,
       ),
       backgroundColor: const Color(0xFFF5F0EB),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -352,7 +352,7 @@ class _FanTimerPageState extends State<FanTimerPage> {
             // 倒计时显示
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 32),
+              padding: const EdgeInsets.symmetric(vertical: 24),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
@@ -367,7 +367,7 @@ class _FanTimerPageState extends State<FanTimerPage> {
                   Text(
                     _countdownText,
                     style: const TextStyle(
-                      fontSize: 48,
+                      fontSize: 40,
                       fontWeight: FontWeight.w600,
                       color: Color(0xFF2D2D2D),
                       fontFeatures: [FontFeature.tabularFigures()],
@@ -376,7 +376,7 @@ class _FanTimerPageState extends State<FanTimerPage> {
                 ],
               ),
             ),
-            const SizedBox(height: 32),
+            const SizedBox(height: 24),
 
             // 选择定时
             const Text(
@@ -411,8 +411,7 @@ class _FanTimerPageState extends State<FanTimerPage> {
                 ],
               ),
             ),
-
-            const Spacer(),
+            const SizedBox(height: 24),
 
             // 保存按钮
             SizedBox(
@@ -435,6 +434,7 @@ class _FanTimerPageState extends State<FanTimerPage> {
                 ),
               ),
             ),
+            const SizedBox(height: 24),
           ],
         ),
       ),

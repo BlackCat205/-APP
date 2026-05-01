@@ -1,13 +1,11 @@
-/// 使用记录模型
+/// 使用记录模型（单风扇记录）
 class UsageRecord {
   final int? id;
   final int startTime; // 开始时间戳（毫秒）
   final int? endTime; // 结束时间戳（毫秒）
   final int? duration; // 时长（秒）
-  final String fanIds; // 风扇ID列表，如"1,2"
-  final String? scentCombo; // 气味组合，如"檀香+薰衣草"
-  final String? sceneTag; // 场景标签
-  final String? emotionEmoji; // 情绪emoji
+  final int fanId; // 单个风扇ID
+  final String? scentName; // 气味名称
   final int createdAt; // 记录创建时间
 
   UsageRecord({
@@ -15,10 +13,8 @@ class UsageRecord {
     required this.startTime,
     this.endTime,
     this.duration,
-    required this.fanIds,
-    this.scentCombo,
-    this.sceneTag,
-    this.emotionEmoji,
+    required this.fanId,
+    this.scentName,
     required this.createdAt,
   });
 
@@ -29,10 +25,8 @@ class UsageRecord {
       startTime: map['start_time'] as int,
       endTime: map['end_time'] as int?,
       duration: map['duration'] as int?,
-      fanIds: map['fan_ids'] as String,
-      scentCombo: map['scent_combo'] as String?,
-      sceneTag: map['scene_tag'] as String?,
-      emotionEmoji: map['emotion_emoji'] as String?,
+      fanId: map['fan_id'] as int,
+      scentName: map['scent_name'] as String?,
       createdAt: map['created_at'] as int,
     );
   }
@@ -44,10 +38,8 @@ class UsageRecord {
       'start_time': startTime,
       'end_time': endTime,
       'duration': duration,
-      'fan_ids': fanIds,
-      'scent_combo': scentCombo,
-      'scene_tag': sceneTag,
-      'emotion_emoji': emotionEmoji,
+      'fan_id': fanId,
+      'scent_name': scentName,
       'created_at': createdAt,
     };
   }
@@ -58,10 +50,8 @@ class UsageRecord {
     int? startTime,
     int? endTime,
     int? duration,
-    String? fanIds,
-    String? scentCombo,
-    String? sceneTag,
-    String? emotionEmoji,
+    int? fanId,
+    String? scentName,
     int? createdAt,
   }) {
     return UsageRecord(
@@ -69,10 +59,8 @@ class UsageRecord {
       startTime: startTime ?? this.startTime,
       endTime: endTime ?? this.endTime,
       duration: duration ?? this.duration,
-      fanIds: fanIds ?? this.fanIds,
-      scentCombo: scentCombo ?? this.scentCombo,
-      sceneTag: sceneTag ?? this.sceneTag,
-      emotionEmoji: emotionEmoji ?? this.emotionEmoji,
+      fanId: fanId ?? this.fanId,
+      scentName: scentName ?? this.scentName,
       createdAt: createdAt ?? this.createdAt,
     );
   }

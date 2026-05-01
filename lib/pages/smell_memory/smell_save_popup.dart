@@ -5,13 +5,13 @@ import 'smell_edit_page.dart';
 class SmellSavePopup extends StatelessWidget {
   final List<String> recipeList; // 配方列表
   final String duration; // 持续时长
-  final int? recordId; // 使用记录ID
+  final List<int> recordIds; // 使用记录ID列表（外键关联）
 
   const SmellSavePopup({
     Key? key,
     required this.recipeList,
     required this.duration,
-    this.recordId,
+    this.recordIds = const [],
   }) : super(key: key);
 
   @override
@@ -96,7 +96,10 @@ class SmellSavePopup extends StatelessWidget {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => SmellEditPage(recordId: recordId),
+                    builder: (context) => SmellEditPage(
+                      usageRecordIds: recordIds,
+                      scentList: recipeList, // 传递去重后的气味列表
+                    ),
                   ),
                 );
               },

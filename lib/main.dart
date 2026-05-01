@@ -9,6 +9,7 @@ import 'pages/scent_memory/scent_memory_page.dart';
 import 'pages/smell_memory/smell_save_popup.dart';
 import 'pages/smell_memory/smell_edit_page.dart';
 import 'pages/smell_memory/smell_list_page.dart';
+import 'pages/care_history_page.dart';
 import 'providers/cart_provider.dart';
 import 'providers/order_provider.dart';
 import 'providers/user_provider.dart';
@@ -205,7 +206,7 @@ class _MainPageState extends State<MainPage> {
   final List<Widget> _pages = [
     HomeControlPage(),
     MallPage(),
-    const SmellListPage(),
+    const CareHistoryPage(),
     ProfilePage(),
   ];
 
@@ -223,7 +224,7 @@ class _MainPageState extends State<MainPage> {
         items: [
           BottomNavigationBarItem(icon: Icon(Icons.home_outlined), label: '家'),
           BottomNavigationBarItem(icon: Icon(Icons.shopping_bag), label: '商城'),
-          BottomNavigationBarItem(icon: Icon(Icons.smart_toy), label: '气味记忆'),
+          BottomNavigationBarItem(icon: Icon(Icons.smart_toy), label: '气味关怀'),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: '我的'),
         ],
         type: BottomNavigationBarType.fixed,

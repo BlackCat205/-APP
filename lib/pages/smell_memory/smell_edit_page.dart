@@ -2,13 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import '../../services/usage_record_service.dart';
-import '../../database/database_helper.dart';
 
 /// 气味瞬间编辑页
 class SmellEditPage extends StatefulWidget {
-  final int? recordId; // 使用记录ID
+  final List<int> usageRecordIds; // 使用记录ID列表（外键关联）
+  final List<String>? scentList; // 去重后的气味列表（直接传入，避免重新查询）
 
-  const SmellEditPage({Key? key, this.recordId}) : super(key: key);
+  const SmellEditPage({
+    Key? key,
+    this.usageRecordIds = const [],
+    this.scentList,
+  }) : super(key: key);
 
   @override
   State<SmellEditPage> createState() => _SmellEditPageState();
@@ -34,27 +38,33 @@ class _SmellEditPageState extends State<SmellEditPage> {
     _loadFanScents(); // 加载风扇气味配置
   }
 
-  /// 加载风扇气味配置
+  /// 加载风扇气味配置（优先使用传入的去重后列表）
   void _loadFanScents() async {
+    // 如果已传入去重后的气味列表，直接使用
+    if (widget.scentList != null && widget.scentList!.isNotEmpty) {
+      setState(() {
+        _scentCombo = widget.scentList!.join('/');
+      });
+      return;
+    }
+
+    // 否则从数据库加载（兼容旧的调用方式）
     try {
-      final dbHelper = DatabaseHelper();
-      final configs = await dbHelper.getAllFanConfigs();
-      if (configs.isNotEmpty) {
-        final scents = configs.map((c) => c['scent_name'] as String?).toList();
-        setState(() {
-          _scentCombo = scents
-              .where((s) => s != null && s.isNotEmpty)
-              .join('/');
-        });
-      } else {
-        // 使用默认配置
-        setState(() {
-          _scentCombo = '薰衣草/檀香/雪松/甜橙';
-        });
+      final records = await UsageRecordService.getRecordsByIds(
+        widget.usageRecordIds,
+      );
+      // 按风扇ID去重
+      final scentMap = <int, String>{};
+      for (final record in records) {
+        if (record.scentName != null && record.scentName!.isNotEmpty) {
+          scentMap.putIfAbsent(record.fanId, () => record.scentName!);
+        }
       }
+      setState(() {
+        _scentCombo = scentMap.values.join('/');
+      });
     } catch (e) {
-      print('加载风扇配置失败: $e');
-      // 使用默认配置
+      print('加载气味配置失败: $e');
       setState(() {
         _scentCombo = '薰衣草/檀香/雪松/甜橙';
       });
@@ -366,12 +376,12 @@ class _SmellEditPageState extends State<SmellEditPage> {
     return '${now.year}.${now.month.toString().padLeft(2, '0')}.${now.day.toString().padLeft(2, '0')} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
   }
 
-  /// 保存气味记忆
+  /// 保存气味记忆到新表 smell_moment_record
   void _saveSmellMemory() async {
     try {
       final prefs = await SharedPreferences.getInstance();
 
-      // 获取现有记忆列表
+      // 获取现有记忆列表（保持原有逻辑兼容）
       final existingMemories = prefs.getStringList('smell_memories') ?? [];
 
       // 创建新记忆
@@ -392,8 +402,14 @@ class _SmellEditPageState extends State<SmellEditPage> {
       // 保存到本地存储
       await prefs.setStringList('smell_memories', existingMemories);
 
-      // 同步更新 usage_records 表
-      await _updateUsageRecord();
+      // 保存到新表 smell_moment_record
+      await SmellMomentRecordService.insertRecord(
+        title: _titleController.text.isEmpty ? '未命名' : _titleController.text,
+        sceneTag: _selectedScene,
+        emotionEmoji: _selectedEmoji,
+        note: _noteController.text,
+        scentCombo: _scentCombo,
+      );
 
       // 直接返回首页
       Navigator.pushReplacementNamed(context, '/');
@@ -403,33 +419,6 @@ class _SmellEditPageState extends State<SmellEditPage> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('保存失败，请重试')));
-    }
-  }
-
-  /// 更新 usage_records 表
-  Future<void> _updateUsageRecord() async {
-    try {
-      int recordIdToUpdate;
-
-      // 优先使用传入的 recordId，否则获取最新的使用记录
-      if (widget.recordId != null) {
-        recordIdToUpdate = widget.recordId!;
-      } else {
-        final records = await UsageRecordService.getAllRecords(limit: 1);
-        if (records.isEmpty) return;
-        recordIdToUpdate = records.first.id!;
-      }
-
-      await UsageRecordService.addSceneAndEmotion(
-        recordId: recordIdToUpdate,
-        sceneTag: _selectedScene,
-        emotionEmoji: _selectedEmoji,
-      );
-      print(
-        '✅ 已同步更新 usage_records: recordId=$recordIdToUpdate, scene=$_selectedScene, emoji=$_selectedEmoji',
-      );
-    } catch (e) {
-      print('更新 usage_records 失败: $e');
     }
   }
 }
