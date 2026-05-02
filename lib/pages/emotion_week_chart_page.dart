@@ -17,13 +17,13 @@ class _EmotionWeekChartPageState extends State<EmotionWeekChartPage> {
   Map<String, dynamic> _summary = {};
   bool _isLoading = true;
 
-  // 5个固定表情包对应关系
+  // 5个固定表情包对应关系（与气味瞬间编辑页面一致）
   final Map<String, Map<String, dynamic>> _emojiMap = {
-    '1': {'emoji': '😌', 'label': '平静安稳', 'color': Colors.blue[100]!},
-    '2': {'emoji': '😊', 'label': '愉悦轻松', 'color': Colors.green[100]!},
-    '3': {'emoji': '😔', 'label': '低落难过', 'color': Colors.purple[100]!},
-    '4': {'emoji': '😰', 'label': '焦虑压力', 'color': Colors.red[100]!},
-    '5': {'emoji': '😴', 'label': '困倦想睡', 'color': Colors.yellow[100]!},
+    '😌': {'label': '平静安稳', 'color': Colors.blue[100]!},
+    '🥰': {'label': '愉悦轻松', 'color': Colors.green[100]!},
+    '😭': {'label': '低落难过', 'color': Colors.purple[100]!},
+    '😤': {'label': '焦虑压力', 'color': Colors.red[100]!},
+    '😴': {'label': '困倦想睡', 'color': Colors.yellow[100]!},
   };
 
   @override
@@ -545,8 +545,8 @@ class _EmotionChartPainter extends CustomPainter {
       color: const Color(0xFF2D2D2D),
     );
 
-    // 竖轴顺序：从上到下依次为：焦虑压力(4)、低落难过(3)、困倦想睡(5)、愉悦轻松(2)、平静安稳(1)
-    final emotions = ['4', '3', '5', '2', '1'];
+    // 竖轴顺序：从上到下依次为：焦虑压力、低落难过、困倦想睡、愉悦轻松、平静安稳（使用 emoji 作为 key）
+    final emotions = ['😤', '😭', '😴', '🥰', '😌'];
     for (int i = 0; i < emotions.length; i++) {
       final emotion = emotions[i];
       final y = topPadding + i * (chartHeight / 5) + (chartHeight / 10);
@@ -564,10 +564,7 @@ class _EmotionChartPainter extends CustomPainter {
       labelPainter.paint(canvas, Offset(4, y - labelPainter.height / 2));
 
       // 再绘制表情包（文字标签右侧，保持间距）
-      final emojiSpan = TextSpan(
-        text: emojiMap[emotion]?['emoji'],
-        style: TextStyle(fontSize: 14),
-      );
+      final emojiSpan = TextSpan(text: emotion, style: TextStyle(fontSize: 14));
       final emojiPainter = TextPainter(
         text: emojiSpan,
         textDirection: TextDirection.ltr,
@@ -622,13 +619,13 @@ class _EmotionChartPainter extends CustomPainter {
         ..strokeWidth = 2.5
         ..style = PaintingStyle.stroke;
 
-      // 情绪值到竖轴位置的映射（基于竖轴顺序）
+      // 情绪值到竖轴位置的映射（基于竖轴顺序，使用 emoji）
       final emotionToY = (String emotion) {
-        if (emotion == '4') return 0; // 焦虑压力
-        if (emotion == '3') return 1; // 低落难过
-        if (emotion == '5') return 2; // 困倦想睡
-        if (emotion == '2') return 3; // 愉悦轻松
-        if (emotion == '1') return 4; // 平静安稳
+        if (emotion == '😤') return 0; // 焦虑压力
+        if (emotion == '😭') return 1; // 低落难过
+        if (emotion == '😴') return 2; // 困倦想睡
+        if (emotion == '🥰') return 3; // 愉悦轻松
+        if (emotion == '😌') return 4; // 平静安稳
         return 4; // 默认平静安稳
       };
 
@@ -658,10 +655,9 @@ class _EmotionChartPainter extends CustomPainter {
             Paint()..color = const Color(0xFFA8D8B9),
           );
 
-          // 在点上方绘制表情包
-          final emoji = emojiMap[topEmotion]?['emoji'] ?? '😌';
+          // 在点上方绘制表情包（topEmotion 已经是 emoji 格式）
           final emojiSpan = TextSpan(
-            text: emoji,
+            text: topEmotion,
             style: TextStyle(fontSize: 18),
           );
           final emojiPainter = TextPainter(
