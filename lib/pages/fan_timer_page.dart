@@ -313,7 +313,8 @@ class _FanTimerPageState extends State<FanTimerPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(totalMinutes == 0 ? '已取消定时' : '定时设置成功')),
         );
-        Navigator.pop(context);
+        // 返回定时时间（毫秒），0表示取消定时
+        Navigator.pop(context, totalMinutes > 0 ? totalMinutes * 60 * 1000 : 0);
       }
     } catch (e) {
       if (mounted) {

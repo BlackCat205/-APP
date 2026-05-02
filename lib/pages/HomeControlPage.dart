@@ -28,11 +28,21 @@ class _HomeControlPageState extends State<HomeControlPage> {
   List<bool> _fanStates = [false, false, false, false];
 
   // 打开定时页面
-  void _openTimerPage(int fanIndex) {
-    Navigator.push(
+  void _openTimerPage(int fanIndex) async {
+    final result = await Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => FanTimerPage(fanIndex: fanIndex)),
     );
+    // 如果返回值是数字，表示定时时间（毫秒），启动本地定时器同步状态
+    if (result is int && result > 0) {
+      Future.delayed(Duration(milliseconds: result), () {
+        if (mounted) {
+          setState(() {
+            _fanStates[fanIndex] = false;
+          });
+        }
+      });
+    }
   }
 
   // 构建风扇开关项（带定时按钮）
