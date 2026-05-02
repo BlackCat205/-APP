@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../database/app_database.dart';
+import '../services/usage_record_service.dart';
 
 /// 情绪周报曲线图页面
 class EmotionWeekChartPage extends StatefulWidget {
@@ -31,7 +32,7 @@ class _EmotionWeekChartPageState extends State<EmotionWeekChartPage> {
     _loadWeekData();
   }
 
-  /// 加载周报数据 - 从数据库 usage_records 表读取
+  /// 加载周报数据 - 从气味瞬间表读取心情数据
   Future<void> _loadWeekData() async {
     setState(() {
       _isLoading = true;
@@ -52,18 +53,18 @@ class _EmotionWeekChartPageState extends State<EmotionWeekChartPage> {
           ? now.millisecondsSinceEpoch
           : startOfWeek.subtract(Duration(seconds: 1)).millisecondsSinceEpoch;
 
-      // 从 usage_records 表查询数据
+      // 从气味瞬间表查询数据（获取心情数据）
       final records = await db.query(
-        'usage_records',
-        where: 'start_time >= ? AND start_time <= ?',
+        'smell_moment_record',
+        where: 'created_at >= ? AND created_at < ?',
         whereArgs: [startTimestamp, endTimestamp],
-        orderBy: 'start_time ASC',
+        orderBy: 'created_at ASC',
       );
 
       // 按日期分组
       final recordsByDate = <String, List<Map<String, dynamic>>>{};
       for (final record in records) {
-        final timestamp = record['start_time'] as int;
+        final timestamp = record['created_at'] as int;
         final date = DateTime.fromMillisecondsSinceEpoch(timestamp);
         final dateStr =
             '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
@@ -82,7 +83,7 @@ class _EmotionWeekChartPageState extends State<EmotionWeekChartPage> {
             '${targetDate.year}-${targetDate.month.toString().padLeft(2, '0')}-${targetDate.day.toString().padLeft(2, '0')}';
         final dayRecords = recordsByDate[dateStr] ?? [];
 
-        // 统计当天情绪分布
+        // 统计当天情绪分布（从气味瞬间表的 emotion_emoji 字段）
         final emotionCount = <String, int>{};
         final scentCount = <String, int>{};
 
@@ -91,14 +92,14 @@ class _EmotionWeekChartPageState extends State<EmotionWeekChartPage> {
           if (emotion != null && emotion.isNotEmpty) {
             emotionCount[emotion] = (emotionCount[emotion] ?? 0) + 1;
           }
-          final scent = record['scent_combo'] as String?;
+          final scent = record['scent_name'] as String?;
           if (scent != null && scent.isNotEmpty) {
             scentCount[scent] = (scentCount[scent] ?? 0) + 1;
           }
         }
 
-        // 找出当天最常见的情绪
-        String topEmotion = dayRecords.isNotEmpty ? '1' : ''; // 无记录时为空
+        // 找出当天最常见的情绪（从气味瞬间表统计）
+        String topEmotion = ''; // 无记录时为空
         int maxEmotionCount = 0;
         if (dayRecords.isNotEmpty) {
           emotionCount.forEach((emotion, count) {
@@ -131,38 +132,32 @@ class _EmotionWeekChartPageState extends State<EmotionWeekChartPage> {
       }
 
       // 计算周报汇总
-      int totalCount = records.length;
+      // 使用 CardTriggerRecordService 获取本周卡片弹出次数（与 EmotionWeekReportPage 一致）
+      int totalCount = await CardTriggerRecordService.getWeekRecordCount();
+
+      // 获取本周最常用气味（与 EmotionWeekReportPage 一致）
+      String mostCommonScent = '无';
+      final weeklyScentStats = await UsageRecordService.getWeeklyScentStats();
+      if (weeklyScentStats.isNotEmpty) {
+        mostCommonScent = weeklyScentStats.first['scent_name'] as String;
+      }
+
       final allEmotionCount = <String, int>{};
-      final allScentCount = <String, int>{};
 
       for (final record in records) {
         final emotion = record['emotion_emoji'] as String?;
         if (emotion != null && emotion.isNotEmpty) {
           allEmotionCount[emotion] = (allEmotionCount[emotion] ?? 0) + 1;
         }
-        final scent = record['scent_combo'] as String?;
-        if (scent != null && scent.isNotEmpty) {
-          allScentCount[scent] = (allScentCount[scent] ?? 0) + 1;
-        }
       }
 
-      // 找出本周最常见的情绪
-      String mostCommonEmotion = '1';
+      // 找出本周最常见的情绪（从气味瞬间表统计）
+      String mostCommonEmotion = '😌';
       int maxEmotion = 0;
       allEmotionCount.forEach((emotion, count) {
         if (count > maxEmotion) {
           maxEmotion = count;
           mostCommonEmotion = emotion;
-        }
-      });
-
-      // 找出本周最常用的气味
-      String mostCommonScent = '无';
-      int maxScent = 0;
-      allScentCount.forEach((scent, count) {
-        if (count > maxScent) {
-          maxScent = count;
-          mostCommonScent = scent;
         }
       });
 
@@ -190,7 +185,7 @@ class _EmotionWeekChartPageState extends State<EmotionWeekChartPage> {
     }
   }
 
-  /// 生成智能分析结论
+  /// 生成智能分析结论（使用 emoji 格式的情绪数据）
   String _generateAnalysisConclusion(
     Map<String, int> emotionCount,
     int totalCount,
@@ -199,14 +194,14 @@ class _EmotionWeekChartPageState extends State<EmotionWeekChartPage> {
       return '本周暂无使用记录，记得给自己一点疗愈时间';
     }
 
-    // 计算各情绪占比
-    final negativeEmotions = ['3', '4']; // 低落难过、焦虑压力
+    // 计算各情绪占比（使用 emoji 格式）
+    final negativeEmotions = ['😔', '😰', '😤', '😭', '😡', '😖']; // 负面情绪
     int negativeCount = 0;
     negativeEmotions.forEach((emotion) {
       negativeCount += emotionCount[emotion] ?? 0;
     });
 
-    final positiveEmotions = ['1', '2']; // 平静安稳、愉悦轻松
+    final positiveEmotions = ['😌', '😊']; // 平静安稳、愉悦轻松
     int positiveCount = 0;
     positiveEmotions.forEach((emotion) {
       positiveCount += emotionCount[emotion] ?? 0;
@@ -216,7 +211,7 @@ class _EmotionWeekChartPageState extends State<EmotionWeekChartPage> {
       return '本周情绪偏低落，建议多使用舒缓类香氛，给自己更多放松时间';
     } else if (positiveCount / totalCount >= 0.7) {
       return '本周心情愉悦，继续保持良好状态';
-    } else if (emotionCount['5'] != null && emotionCount['5']! >= 3) {
+    } else if (emotionCount['😴'] != null && emotionCount['😴']! >= 3) {
       return '本周较为困倦，建议调整作息时间，使用提神类香氛';
     } else {
       return '本周情绪稳定，继续保持规律的使用习惯';
@@ -361,9 +356,9 @@ class _EmotionWeekChartPageState extends State<EmotionWeekChartPage> {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    '${_emojiMap[_summary['mostCommonEmotion'] ?? '1']?['emoji']} ${_emojiMap[_summary['mostCommonEmotion'] ?? '1']?['label']}',
+                                    '${_summary['mostCommonEmotion'] ?? '😌'}',
                                     style: TextStyle(
-                                      fontSize: 16,
+                                      fontSize: 20,
                                       fontWeight: FontWeight.w500,
                                       color: const Color(0xFF2D2D2D),
                                     ),

@@ -136,18 +136,12 @@ class _CareHistoryPageState extends State<CareHistoryPage> {
             const SizedBox(height: 16),
             Text(
               '暂无心情日记',
-              style: TextStyle(
-                fontSize: 16,
-                color: const Color(0xFF8C8C8C),
-              ),
+              style: TextStyle(fontSize: 16, color: const Color(0xFF8C8C8C)),
             ),
             const SizedBox(height: 8),
             Text(
               '点击「写今日心情」开始记录',
-              style: TextStyle(
-                fontSize: 12,
-                color: const Color(0xFFBDBDBD),
-              ),
+              style: TextStyle(fontSize: 12, color: const Color(0xFFBDBDBD)),
             ),
           ],
         ),
@@ -160,7 +154,8 @@ class _CareHistoryPageState extends State<CareHistoryPage> {
       itemBuilder: (context, index) {
         final note = _diaryNotes[index];
         final date = DateTime.fromMillisecondsSinceEpoch(note.createdAt);
-        final dateStr = '${date.year}.${date.month.toString().padLeft(2, '0')}.${date.day.toString().padLeft(2, '0')}';
+        final dateStr =
+            '${date.year}.${date.month.toString().padLeft(2, '0')}.${date.day.toString().padLeft(2, '0')}';
 
         return Container(
           margin: const EdgeInsets.only(bottom: 16),
@@ -184,7 +179,10 @@ class _CareHistoryPageState extends State<CareHistoryPage> {
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: const Color(0xFFA8D8B9).withOpacity(0.2),
                       borderRadius: BorderRadius.circular(10),
@@ -205,7 +203,10 @@ class _CareHistoryPageState extends State<CareHistoryPage> {
               Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: const Color(0xFFE8D5B7),
                       borderRadius: BorderRadius.circular(10),
@@ -220,7 +221,10 @@ class _CareHistoryPageState extends State<CareHistoryPage> {
                   ),
                   const SizedBox(width: 8),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: const Color(0xFFD5E8D4),
                       borderRadius: BorderRadius.circular(10),

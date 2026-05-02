@@ -120,7 +120,7 @@ class UsageRecordService {
         orderBy: 'start_time DESC',
       );
 
-      return maps.map((m) => UsageRecord.fromMap(m)).toList();
+      return maps.map((e) => UsageRecord.fromMap(e)).toList();
     } catch (e) {
       print('查询今日记录失败: $e');
       return [];
@@ -147,7 +147,7 @@ class UsageRecordService {
         orderBy: 'start_time DESC',
       );
 
-      return maps.map((m) => UsageRecord.fromMap(m)).toList();
+      return maps.map((e) => UsageRecord.fromMap(e)).toList();
     } catch (e) {
       print('查询本周记录失败: $e');
       return [];
@@ -164,7 +164,7 @@ class UsageRecordService {
         limit: limit,
       );
 
-      return maps.map((m) => UsageRecord.fromMap(m)).toList();
+      return maps.map((e) => UsageRecord.fromMap(e)).toList();
     } catch (e) {
       print('查询所有记录失败: $e');
       return [];
@@ -194,7 +194,7 @@ class UsageRecordService {
         whereArgs: ids,
       );
 
-      return maps.map((m) => UsageRecord.fromMap(m)).toList();
+      return maps.map((e) => UsageRecord.fromMap(e)).toList();
     } catch (e) {
       print('根据ID查询记录失败: $e');
       return [];
@@ -222,6 +222,57 @@ class UsageRecordService {
       return 0;
     }
   }
+
+  /// 统计本周每种气味的总使用时长
+  static Future<List<Map<String, dynamic>>> getWeeklyScentStats() async {
+    try {
+      final db = await _database;
+      final now = DateTime.now();
+      final weekStart = now.subtract(Duration(days: now.weekday - 1));
+      final startOfWeek = DateTime(
+        weekStart.year,
+        weekStart.month,
+        weekStart.day,
+      ).millisecondsSinceEpoch;
+      final endOfWeek = startOfWeek + 7 * 24 * 60 * 60 * 1000;
+      final records = await db.query(
+        'usage_records',
+        where:
+            'created_at >= ? AND created_at < ? AND duration IS NOT NULL AND duration > 0',
+        whereArgs: [startOfWeek, endOfWeek],
+      );
+      final scentDurationMap = <String, int>{};
+      for (final record in records) {
+        final scentName = record['scent_name'] as String?;
+        final duration = record['duration'] as int?;
+        if (scentName != null &&
+            scentName.isNotEmpty &&
+            duration != null &&
+            duration > 0) {
+          scentDurationMap[scentName] =
+              (scentDurationMap[scentName] ?? 0) + duration;
+        }
+      }
+      final result =
+          scentDurationMap.entries
+              .map(
+                (entry) => {
+                  'scent_name': entry.key,
+                  'total_duration': entry.value,
+                },
+              )
+              .toList()
+            ..sort(
+              (a, b) => (b['total_duration'] as int).compareTo(
+                a['total_duration'] as int,
+              ),
+            );
+      return result;
+    } catch (e) {
+      print('统计本周气味使用时长失败: $e');
+      return [];
+    }
+  }
 }
 
 /// 气味瞬间记录服务 - 存储弹窗收集的数据
@@ -236,6 +287,7 @@ class SmellMomentRecordService {
     String? emotionEmoji,
     String? note,
     String? scentCombo,
+    int? score,
   }) async {
     try {
       final db = await _database;
@@ -247,10 +299,11 @@ class SmellMomentRecordService {
         'emotion_emoji': emotionEmoji,
         'note': note,
         'scent_combo': scentCombo,
+        'score': score,
         'created_at': now,
       });
 
-      print('📝 保存气味瞬间记录: title=$title, scentCombo=$scentCombo');
+      print('📝 保存气味瞬间记录: title=$title, scentCombo=$scentCombo, score=$score');
       return id;
     } catch (e) {
       print('保存气味瞬间记录失败: $e');
@@ -329,6 +382,57 @@ class SmellMomentRecordService {
     } catch (e) {
       print('查询今日气味瞬间记录失败: $e');
       return [];
+    }
+  }
+}
+
+/// 卡片触发记录服务
+class CardTriggerRecordService {
+  /// 获取数据库
+  static Future<Database> get _database async => AppDatabase().database;
+
+  /// 记录一次卡片弹出事件
+  static Future<int> insertRecord() async {
+    try {
+      final db = await _database;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final id = await db.insert('card_trigger_records', {'created_at': now});
+      print('📝 记录卡片弹出事件成功: id=$id');
+      return id;
+    } catch (e) {
+      print('记录卡片弹出事件失败: $e');
+      return -1;
+    }
+  }
+
+  /// 查询本周的卡片触发记录数量
+  static Future<int> getWeekRecordCount() async {
+    try {
+      final db = await _database;
+      final now = DateTime.now();
+      final weekStart = now.subtract(Duration(days: now.weekday - 1));
+      final startOfWeek = DateTime(
+        weekStart.year,
+        weekStart.month,
+        weekStart.day,
+      ).millisecondsSinceEpoch;
+      final endOfWeek = startOfWeek + 7 * 24 * 60 * 60 * 1000;
+
+      final result = await db.rawQuery(
+        '''
+        SELECT COUNT(*) as count FROM card_trigger_records
+        WHERE created_at >= ? AND created_at < ?
+      ''',
+        [startOfWeek, endOfWeek],
+      );
+
+      if (result.isNotEmpty) {
+        return result.first['count'] as int? ?? 0;
+      }
+      return 0;
+    } catch (e) {
+      print('查询本周卡片触发记录失败: $e');
+      return 0;
     }
   }
 }

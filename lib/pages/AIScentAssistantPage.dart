@@ -41,51 +41,6 @@ class _AIScentAssistantPageState extends State<AIScentAssistantPage> {
   // 平台检测
   bool _isWindows = Platform.isWindows;
 
-  // 下拉选择框相关
-  String _selectedMode = '设备可用香氛（4 种）';
-  final List<String> _modes = ['设备可用香氛（4 种）', '市面香氛精油推荐'];
-
-  // 设备可用香氛列表
-  final List<Map<String, String>> _deviceScents = [
-    {'name': '薰衣草', 'effect': '舒缓、助眠、抗焦虑'},
-    {'name': '甜橙', 'effect': '愉悦、提振、缓解低落'},
-    {'name': '大马士革玫瑰', 'effect': '安抚、助眠、女性舒缓'},
-    {'name': '柠檬', 'effect': '提神、清醒、净化空气'},
-  ];
-
-  // 市面香氛精油推荐列表
-  final Map<String, List<String>> _marketScents = {
-    '柑橘调（清新提神）': ['甜橙', '柠檬', '葡萄柚', '佛手柑', '青橘', '红橘', '蜜柑', '西柚'],
-    '花香调（舒缓安抚）': [
-      '薰衣草',
-      '大马士革玫瑰',
-      '茉莉',
-      '橙花',
-      '依兰',
-      '桂花',
-      '白玉兰',
-      '洋甘菊',
-      '晚香玉',
-      '百合',
-      '天竺葵',
-    ],
-    '木质调（沉稳安定）': ['檀香', '雪松', '杉木', '松木', '香根草', '广藿香', '岩兰草', '乌木'],
-    '草本 / 清新调（清醒解压）': [
-      '薄荷',
-      '尤加利',
-      '迷迭香',
-      '罗勒',
-      '鼠尾草',
-      '马鞭草',
-      '绿茶',
-      '海盐',
-      '白桃',
-      '白桃乌龙',
-    ],
-    '树脂 / 东方调（温暖沉静）': ['乳香', '没药', '琥珀', '香草', '肉桂', '焚香', '麝香', '广藿香'],
-    '其他常见治愈香': ['白茶', '无花果', '海盐', '椰子', '青竹', '雨后森林', '雪松香'],
-  };
-
   @override
   void initState() {
     super.initState();
@@ -327,12 +282,6 @@ class _AIScentAssistantPageState extends State<AIScentAssistantPage> {
     try {
       print('开始调用AI API，用户输入: $text');
 
-      // 检查是否是搜索香氛
-      if (_isScentSearch(text)) {
-        _handleScentSearch(text);
-        return;
-      }
-
       // 【新增】语义识别情绪
       final detectedEmotion = _detectEmotion(text);
       print('语义识别情绪: $detectedEmotion');
@@ -394,123 +343,8 @@ ${detectedEmotion.isNotEmpty ? '（用户情绪关键词命中：$detectedEmotio
     }
   }
 
-  // 判断是否是搜索香氛
-  bool _isScentSearch(String text) {
-    text = text.toLowerCase();
-    return text.contains('香') ||
-        text.contains('味') ||
-        text.contains('精油') ||
-        text.contains('香水');
-  }
-
-  // 处理香氛搜索
-  void _handleScentSearch(String scentName) {
-    if (_selectedMode == '设备可用香氛（4 种）') {
-      // 检查是否在设备可用香氛中
-      bool isAvailable = _deviceScents.any(
-        (scent) => scent['name']!.contains(scentName),
-      );
-      if (isAvailable) {
-        // 正常推荐
-        _recommendDeviceScent(scentName);
-      } else {
-        // 弹出提示
-        setState(() {
-          _messages.add({
-            'type': 'ai',
-            'error': '当前设备不支持该香氛，可切换到「市面香氛精油推荐」模式查看',
-          });
-          _isLoading = false;
-        });
-        _saveChatHistory();
-        _scrollToBottom();
-      }
-    } else {
-      // 市面推荐模式
-      bool isFound = false;
-      String category = '';
-
-      // 检查是否在市面香氛列表中
-      for (var entry in _marketScents.entries) {
-        if (entry.value.any((scent) => scent.contains(scentName))) {
-          isFound = true;
-          category = entry.key;
-          break;
-        }
-      }
-
-      if (isFound) {
-        // 正常推荐
-        _recommendMarketScent(scentName, category);
-      } else {
-        // 跳转到反馈页面
-        _showFeedbackPage(scentName);
-      }
-    }
-  }
-
-  // 推荐设备可用香氛
-  void _recommendDeviceScent(String scentName) {
-    var scent = _deviceScents.firstWhere(
-      (s) => s['name']!.contains(scentName),
-      orElse: () => _deviceScents[0],
-    );
-
-    setState(() {
-      _messages.add({
-        'type': 'ai',
-        'data': {
-          'scent': scent['name']!,
-          'effect': scent['effect']!,
-          'deviceAvailable': true,
-        },
-      });
-      _isLoading = false;
-    });
-    _saveChatHistory();
-    _scrollToBottom();
-  }
-
-  // 推荐市面香氛
-  void _recommendMarketScent(String scentName, String category) {
-    setState(() {
-      _messages.add({
-        'type': 'ai',
-        'data': {
-          'scent': scentName,
-          'category': category,
-          'deviceAvailable': false,
-        },
-      });
-      _isLoading = false;
-    });
-    _saveChatHistory();
-    _scrollToBottom();
-  }
-
   // 处理推荐结果
   void _handleRecommendation(Map<String, dynamic> data) {
-    if (_selectedMode == '设备可用香氛（4 种）') {
-      // 设备可用模式，只推荐4种
-      var recommendedScent = data['scent'];
-      bool isAvailable = _deviceScents.any(
-        (scent) => scent['name'] == recommendedScent,
-      );
-
-      if (!isAvailable) {
-        // 如果推荐的香氛不在设备可用列表中，随机推荐一个
-        var randomScent =
-            _deviceScents[DateTime.now().millisecond % _deviceScents.length];
-        data['scent'] = randomScent['name']!;
-        data['reason'] = '该香氛适合您的情绪状态';
-      }
-
-      data['deviceAvailable'] = true;
-    } else {
-      // 市面推荐模式
-      data['deviceAvailable'] = false;
-    }
-
     // 添加AI回复到列表
     setState(() {
       _messages.add({'type': 'ai', 'data': data});
@@ -540,20 +374,6 @@ ${detectedEmotion.isNotEmpty ? '（用户情绪关键词命中：$detectedEmotio
       print('保存记忆失败: $e');
       // 保存失败不影响成功结果的显示
     }
-  }
-
-  // 显示反馈页面
-  void _showFeedbackPage(String scentName) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => FeedbackPage(scentName: scentName),
-      ),
-    );
-
-    setState(() {
-      _isLoading = false;
-    });
   }
 
   // 开始语音识别
@@ -845,27 +665,6 @@ ${detectedEmotion.isNotEmpty ? '（用户情绪关键词命中：$detectedEmotio
                 padding: EdgeInsets.all(8.0),
                 child: Text('正在聆听...', style: TextStyle(color: Colors.blue)),
               ),
-
-            // 下拉选择框
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: DropdownButton<String>(
-                value: _selectedMode,
-                onChanged: (String? newValue) {
-                  setState(() {
-                    _selectedMode = newValue!;
-                  });
-                },
-                icon: const Icon(Icons.arrow_drop_down),
-                isExpanded: true,
-                items: _modes.map<DropdownMenuItem<String>>((String value) {
-                  return DropdownMenuItem<String>(
-                    value: value,
-                    child: Text(value),
-                  );
-                }).toList(),
-              ),
-            ),
 
             // 输入框和发送按钮
             Padding(

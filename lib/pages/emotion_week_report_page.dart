@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
 import '../services/care_service.dart';
+import '../services/usage_record_service.dart';
 import 'AIScentAssistantPage.dart';
 import 'emotion_week_chart_page.dart';
 import 'diary_edit_page.dart';
 
-/// 情绪周报页面 - 100%读取真实气味记忆数据
+/// 情绪周报页面 - 从气味瞬间表读取真实数据
 class EmotionWeekReportPage extends StatefulWidget {
   const EmotionWeekReportPage({Key? key}) : super(key: key);
 
@@ -19,6 +18,7 @@ class _EmotionWeekReportPageState extends State<EmotionWeekReportPage> {
   List<Map<String, dynamic>> _weekData = [];
   Map<String, dynamic> _summary = {};
   bool _isLoading = true;
+  String _topScent = '无'; // 本周最常用气味
 
   @override
   void initState() {
@@ -26,41 +26,51 @@ class _EmotionWeekReportPageState extends State<EmotionWeekReportPage> {
     _loadWeekData();
   }
 
-  /// 加载周报数据 - 从本地存储读取真实数据
+  /// 加载周报数据 - 从气味瞬间表读取真实数据
   Future<void> _loadWeekData() async {
     setState(() {
       _isLoading = true;
     });
 
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final memoryStrings = prefs.getStringList('smell_memories') ?? [];
+      // 计算本周的开始和结束日期
+      final now = DateTime.now();
+      final weekStart = now.subtract(Duration(days: now.weekday - 1));
+      final startOfWeek = DateTime(
+        weekStart.year,
+        weekStart.month,
+        weekStart.day,
+      );
+      final endOfWeek = startOfWeek.add(const Duration(days: 7));
 
-      // 解析所有气味记忆
-      final allMemories = memoryStrings
-          .map((str) {
-            try {
-              return json.decode(str) as Map<String, dynamic>;
-            } catch (e) {
-              print('解析记忆失败: $e');
-              return null;
-            }
-          })
-          .where((m) => m != null)
-          .cast<Map<String, dynamic>>()
-          .toList();
+      // 从气味瞬间表读取所有记录
+      final allRecords = await SmellMomentRecordService.getAllRecords();
 
-      // 【修改】不再限制本周，而是显示所有有记录的日期
-      // 按日期分组（YYYY-MM-DD格式）
-      final memoriesByDate = <String, List<Map<String, dynamic>>>{};
-      for (final memory in allMemories) {
-        final timestamp = memory['timestamp'] as String?;
-        if (timestamp == null) continue;
-        final dateStr = timestamp.split(' ')[0]; // "2026-04-24"
-        memoriesByDate.putIfAbsent(dateStr, () => []).add(memory);
+      // 获取本周最常用气味
+      final weeklyScentStats = await UsageRecordService.getWeeklyScentStats();
+      String topScent = '无';
+      if (weeklyScentStats.isNotEmpty) {
+        topScent = weeklyScentStats.first['scent_name'] as String;
       }
 
-      // 【修改】只显示有实际数据的日期，按日期倒序排列
+      // 按日期分组（YYYY-MM-DD格式），只保留本周的记录
+      final memoriesByDate = <String, List<Map<String, dynamic>>>{};
+      for (final record in allRecords) {
+        final createdAt = record['created_at'] as int?;
+        if (createdAt == null) continue;
+        final date = DateTime.fromMillisecondsSinceEpoch(createdAt);
+
+        // 只处理本周内的记录
+        if (date.isBefore(startOfWeek) || date.isAtSameMomentAs(endOfWeek)) {
+          continue;
+        }
+
+        final dateStr =
+            '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+        memoriesByDate.putIfAbsent(dateStr, () => []).add(record);
+      }
+
+      // 只显示有实际数据的日期，按日期倒序排列
       final dayLabels = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
       final weekData = <Map<String, dynamic>>[];
 
@@ -79,11 +89,11 @@ class _EmotionWeekReportPageState extends State<EmotionWeekReportPage> {
         final sceneCount = <String, int>{};
         final emotionCount = <String, int>{};
         for (final memory in dayMemories) {
-          final scene = memory['scene'] as String?;
+          final scene = memory['scene_tag'] as String?;
           if (scene != null && scene.isNotEmpty) {
             sceneCount[scene] = (sceneCount[scene] ?? 0) + 1;
           }
-          final emoji = memory['emoji'] as String?;
+          final emoji = memory['emotion_emoji'] as String?;
           if (emoji != null && emoji.isNotEmpty) {
             emotionCount[emoji] = (emotionCount[emoji] ?? 0) + 1;
           }
@@ -127,23 +137,22 @@ class _EmotionWeekReportPageState extends State<EmotionWeekReportPage> {
       }
 
       // 计算本周汇总
-      int totalCount = 0;
+      // 使用 CardTriggerRecordService.getWeekRecordCount() 获取本周卡片弹出次数
+      int totalCount = await CardTriggerRecordService.getWeekRecordCount();
+
       final allSceneCount = <String, int>{};
       final allEmotionCount = <String, int>{};
       final negativeEmojis = ['😤', '😭', '😡', '😔', '😖'];
       int negativeCount = 0;
 
       for (final day in weekData) {
-        final count = day['count'] as int;
-        totalCount += count;
-
         final dayMemories = day['memories'] as List<Map<String, dynamic>>;
         for (final memory in dayMemories) {
-          final scene = memory['scene'] as String?;
+          final scene = memory['scene_tag'] as String?;
           if (scene != null && scene.isNotEmpty) {
             allSceneCount[scene] = (allSceneCount[scene] ?? 0) + 1;
           }
-          final emoji = memory['emoji'] as String?;
+          final emoji = memory['emotion_emoji'] as String?;
           if (emoji != null && emoji.isNotEmpty) {
             allEmotionCount[emoji] = (allEmotionCount[emoji] ?? 0) + 1;
             if (negativeEmojis.contains(emoji)) {
@@ -163,13 +172,23 @@ class _EmotionWeekReportPageState extends State<EmotionWeekReportPage> {
         }
       });
 
+      // 找出本周最常见心情（从气味瞬间表统计）
+      String mostCommonEmotion = '😌';
+      int maxEmotionCount = 0;
+      allEmotionCount.forEach((emoji, count) {
+        if (count > maxEmotionCount) {
+          maxEmotionCount = count;
+          mostCommonEmotion = emoji;
+        }
+      });
+
       // 生成系统结论
       String conclusion = '本周情绪稳定，继续保持';
       if (totalCount < 3) {
         conclusion = '最近很少使用，别忘了给自己一点疗愈时间';
-      } else if (allSceneCount['疲惫舒缓'] != null && allSceneCount['疲惫舒缓']! >= 3) {
-        conclusion = '本周压力偏高，需要关注休息';
-      } else if (allSceneCount['助眠安神'] != null && allSceneCount['助眠安神']! >= 3) {
+      } else if (allSceneCount['下班回家'] != null && allSceneCount['下班回家']! >= 3) {
+        conclusion = '本周工作较忙，下班后多给自己一些放松时间';
+      } else if (allSceneCount['睡前'] != null && allSceneCount['睡前']! >= 3) {
         conclusion = '本周睡眠质量一般，试试延长疗愈时长';
       } else if (totalCount > 0 && negativeCount / totalCount >= 0.5) {
         conclusion = '本周情绪偏低落，多给自己一点时间';
@@ -180,8 +199,10 @@ class _EmotionWeekReportPageState extends State<EmotionWeekReportPage> {
         _summary = {
           'totalCount': totalCount,
           'topScene': topScene,
+          'mostCommonEmotion': mostCommonEmotion,
           'conclusion': conclusion,
         };
+        _topScent = topScent;
         _isLoading = false;
       });
     } catch (e) {
@@ -318,12 +339,13 @@ class _EmotionWeekReportPageState extends State<EmotionWeekReportPage> {
                                     MainAxisAlignment.spaceAround,
                                 children: [
                                   _buildSummaryItem(
-                                    '总使用次数',
-                                    '${_summary['totalCount'] ?? 0}',
+                                    '本周最常见心情',
+                                    '${_summary['mostCommonEmotion'] ?? '😌'}',
                                   ),
+                                  _buildSummaryItem('最常用气味', _topScent),
                                   _buildSummaryItem(
-                                    'TOP1场景',
-                                    '${_summary['topScene'] ?? '无'}',
+                                    '本周使用次数',
+                                    '${_summary['totalCount'] ?? 0} 次',
                                   ),
                                 ],
                               ),

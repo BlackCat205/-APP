@@ -7,6 +7,7 @@ import 'scent_memory/scent_memory_page.dart';
 import 'smell_memory/smell_list_page.dart';
 import 'care_history_page.dart';
 import 'database_viewer_page.dart';
+import 'scent_library_page.dart';
 import '../providers/user_provider.dart';
 
 // 常量定义：抽离硬编码，提升可维护性
@@ -259,6 +260,17 @@ class _ProfilePageState extends State<ProfilePage> {
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (context) => SmellListPage()),
+            ),
+          ),
+          const SizedBox(height: kDefaultPadding),
+          const Divider(height: 1, color: Colors.grey),
+          const SizedBox(height: kDefaultPadding),
+          // 你的气味库
+          _buildSettingItem(
+            title: '你的气味库',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const ScentLibraryPage()),
             ),
           ),
           const SizedBox(height: kDefaultPadding),

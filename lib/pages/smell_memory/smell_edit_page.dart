@@ -24,6 +24,7 @@ class _SmellEditPageState extends State<SmellEditPage> {
   String? _selectedEmoji;
   String? _selectedScene; // 场景标签
   String _scentCombo = ''; // 气味组合
+  int? _selectedScore; // 评分（1-5分）
   final List<String> _emojis = ['😌', '🥰', '😭', '😤', '😴'];
   final List<String> _scenes = ['下班回家', '工作学习', '睡前', '周末放松', '其他'];
 
@@ -264,6 +265,50 @@ class _SmellEditPageState extends State<SmellEditPage> {
             ),
             const SizedBox(height: 24),
 
+            // 本次气味体验情绪效果评分
+            Text(
+              '本次气味体验情绪效果',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF2D2D2D),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(5, (index) {
+                final score = index + 1;
+                final isSelected =
+                    _selectedScore != null && _selectedScore! >= score;
+                return GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _selectedScore = score;
+                    });
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Icon(
+                      isSelected ? Icons.star : Icons.star_border,
+                      size: 40,
+                      color: isSelected
+                          ? const Color(0xFFFFD700)
+                          : const Color(0xFFD0D0D0),
+                    ),
+                  ),
+                );
+              }),
+            ),
+            const SizedBox(height: 8),
+            Center(
+              child: Text(
+                _getScoreLabel(_selectedScore),
+                style: TextStyle(fontSize: 14, color: const Color(0xFF8C8C8C)),
+              ),
+            ),
+            const SizedBox(height: 24),
+
             // 自动记录卡片
             Container(
               padding: const EdgeInsets.all(16),
@@ -376,6 +421,24 @@ class _SmellEditPageState extends State<SmellEditPage> {
     return '${now.year}.${now.month.toString().padLeft(2, '0')}.${now.day.toString().padLeft(2, '0')} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
   }
 
+  /// 获取评分标签
+  String _getScoreLabel(int? score) {
+    switch (score) {
+      case 1:
+        return '1分 - 效果不太好';
+      case 2:
+        return '2分 - 效果一般';
+      case 3:
+        return '3分 - 效果还可以';
+      case 4:
+        return '4分 - 效果不错';
+      case 5:
+        return '5分 - 效果非常好';
+      default:
+        return '请选择评分';
+    }
+  }
+
   /// 保存气味记忆到新表 smell_moment_record
   void _saveSmellMemory() async {
     try {
@@ -409,6 +472,7 @@ class _SmellEditPageState extends State<SmellEditPage> {
         emotionEmoji: _selectedEmoji,
         note: _noteController.text,
         scentCombo: _scentCombo,
+        score: _selectedScore,
       );
 
       // 直接返回首页

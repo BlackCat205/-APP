@@ -244,21 +244,26 @@ class _HomeControlPageState extends State<HomeControlPage> {
     // 如果所有风扇都已关闭
     if (!hasActiveFan) {
       // 获取上次气味瞬间记录的时间戳（用于判定"本次使用"的起始时间）
-      final lastMomentTimestamp = await SmellMomentRecordService.getLastMomentRecordTimestamp();
+      final lastMomentTimestamp =
+          await SmellMomentRecordService.getLastMomentRecordTimestamp();
 
       // 获取今日所有使用记录
       final allTodayRecords = await UsageRecordService.getTodayRecords();
 
       // 筛选"本次使用"记录：createdAt > 上次弹窗时间戳 且 时长 > 60秒
       final validRecords = allTodayRecords
-          .where((r) =>
-              r.createdAt != null &&
-              r.createdAt! > lastMomentTimestamp &&
-              r.duration != null &&
-              r.duration! > 60)
+          .where(
+            (r) =>
+                r.createdAt != null &&
+                r.createdAt! > lastMomentTimestamp &&
+                r.duration != null &&
+                r.duration! > 60,
+          )
           .toList();
 
-      print('🧪 本次使用判定：上次弹窗时间=$lastMomentTimestamp, 找到${validRecords.length}条有效记录');
+      print(
+        '🧪 本次使用判定：上次弹窗时间=$lastMomentTimestamp, 找到${validRecords.length}条有效记录',
+      );
 
       // 如果有有效的使用记录，触发弹窗
       if (validRecords.isNotEmpty) {
@@ -268,7 +273,10 @@ class _HomeControlPageState extends State<HomeControlPage> {
   }
 
   /// 显示气味瞬间保存弹窗
-  void _showSmellSavePopup(List<UsageRecord> records) {
+  void _showSmellSavePopup(List<UsageRecord> records) async {
+    // 记录卡片弹出事件（不管用户是否保存，都记录一次）
+    await CardTriggerRecordService.insertRecord();
+
     // 收集本次使用的风扇对应的气味（按风扇ID去重，避免重复显示）
     final scentMap = <int, String>{};
     for (final record in records) {

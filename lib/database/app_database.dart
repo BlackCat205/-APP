@@ -25,7 +25,7 @@ class AppDatabase {
 
     return await openDatabase(
       path,
-      version: 7, // 版本7：从 smell_moment_record 表移除 usage_record_ids 字段
+      version: 9, // 版本9：添加card_trigger_records表，记录卡片弹出事件
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -37,6 +37,7 @@ class AppDatabase {
     await _createUsageRecordsTable(db);
     await _createFanScentConfigTable(db);
     await _createSmellMomentRecordTable(db);
+    await _createCardTriggerRecordsTable(db);
 
     // 插入默认数据
     await _insertDefaultFanScentConfig(db);
@@ -124,6 +125,18 @@ class AppDatabase {
         'ALTER TABLE smell_moment_record_new RENAME TO smell_moment_record',
       );
     }
+
+    // 版本7→8：添加score评分字段
+    if (oldVersion < 8) {
+      await db.execute(
+        'ALTER TABLE smell_moment_record ADD COLUMN score INTEGER',
+      );
+    }
+
+    // 版本8→9：添加card_trigger_records表，记录卡片弹出事件
+    if (oldVersion < 9) {
+      await _createCardTriggerRecordsTable(db);
+    }
   }
 
   // ==================== 表创建方法 ====================
@@ -167,6 +180,7 @@ class AppDatabase {
         emotion_emoji TEXT,
         note TEXT,
         scent_combo TEXT,
+        score INTEGER,
         created_at INTEGER NOT NULL
       )
     ''');
@@ -180,6 +194,16 @@ class AppDatabase {
         fan_id INTEGER UNIQUE,
         scent_name TEXT,
         updated_at INTEGER
+      )
+    ''');
+  }
+
+  /// 卡片触发表（记录每次弹出卡片的事件）
+  Future<void> _createCardTriggerRecordsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS card_trigger_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at INTEGER NOT NULL
       )
     ''');
   }
