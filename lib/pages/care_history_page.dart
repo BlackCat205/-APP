@@ -22,7 +22,6 @@ class _CareHistoryPageState extends State<CareHistoryPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F0EB),
       appBar: AppBar(
         title: Text(
           '气味关怀',
@@ -31,7 +30,7 @@ class _CareHistoryPageState extends State<CareHistoryPage> {
             color: const Color(0xFF2D2D2D),
           ),
         ),
-        backgroundColor: const Color(0xFFF5F0EB),
+        backgroundColor: Colors.white,
         elevation: 0,
         centerTitle: true,
         automaticallyImplyLeading: false,

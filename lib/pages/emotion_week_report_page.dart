@@ -236,7 +236,6 @@ class _EmotionWeekReportPageState extends State<EmotionWeekReportPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F0EB),
       appBar: AppBar(
         title: Text(
           '情绪周报',
@@ -245,7 +244,7 @@ class _EmotionWeekReportPageState extends State<EmotionWeekReportPage> {
             color: const Color(0xFF2D2D2D),
           ),
         ),
-        backgroundColor: const Color(0xFFF5F0EB),
+        backgroundColor: Colors.white,
         elevation: 0,
         centerTitle: true,
         automaticallyImplyLeading: false,
