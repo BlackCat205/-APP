@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:sqflite/sqflite.dart';
 import '../database/app_database.dart';
 
 /// 你的气味库页面 - 显示五个场景下评分最高的气味
@@ -13,8 +14,35 @@ class _ScentLibraryPageState extends State<ScentLibraryPage> {
   bool _isLoading = true;
   List<Map<String, dynamic>> _scentData = [];
 
-  // 五个场景定义
-  final List<String> _scenes = ['下班回家', '工作学习', '睡前', '周末放松', '其他'];
+  // ========== 常量 ==========
+  static const List<String> _scenes = [
+    '下班回家',
+    '工作学习',
+    '睡前',
+    '周末放松',
+    '其他',
+  ];
+
+  static const double _cardRadius = 12.0;
+  static const double _iconContainerSize = 48.0;
+  static const double _iconSize = 24.0;
+  static const double _defaultPadding = 16.0;
+
+  static const Map<String, IconData> _sceneIcons = {
+    '下班回家': Icons.home,
+    '工作学习': Icons.work,
+    '睡前': Icons.bed,
+    '周末放松': Icons.beach_access,
+    '其他': Icons.more_horiz,
+  };
+
+  static const Map<String, Color> _sceneColors = {
+    '下班回家': Colors.blue,
+    '工作学习': Colors.green,
+    '睡前': Colors.purple,
+    '周末放松': Colors.orange,
+    '其他': Colors.grey,
+  };
 
   @override
   void initState() {
@@ -22,18 +50,13 @@ class _ScentLibraryPageState extends State<ScentLibraryPage> {
     _loadScentData();
   }
 
-  /// 加载每个场景下评分最高的气味数据
   Future<void> _loadScentData() async {
-    setState(() {
-      _isLoading = true;
-    });
-
+    setState(() => _isLoading = true);
     try {
       final db = await AppDatabase().database;
       final List<Map<String, dynamic>> result = [];
 
       for (final scene in _scenes) {
-        // 查询该场景下评分最高的气味记录
         final records = await db.query(
           'smell_moment_record',
           where: 'scene_tag = ?',
@@ -64,56 +87,17 @@ class _ScentLibraryPageState extends State<ScentLibraryPage> {
         _isLoading = false;
       });
     } catch (e) {
-      print('加载气味库数据失败: $e');
-      setState(() {
-        _isLoading = false;
-      });
+      debugPrint('加载气味库数据失败: $e');
+      setState(() => _isLoading = false);
     }
   }
 
-  /// 获取某个场景的记录数量
-  Future<int> _getSceneRecordCount(dynamic db, String scene) async {
+  Future<int> _getSceneRecordCount(Database db, String scene) async {
     final result = await db.rawQuery(
       'SELECT COUNT(*) as count FROM smell_moment_record WHERE scene_tag = ?',
       [scene],
     );
     return result.first['count'] as int? ?? 0;
-  }
-
-  /// 获取场景图标
-  IconData _getSceneIcon(String scene) {
-    switch (scene) {
-      case '下班回家':
-        return Icons.home;
-      case '工作学习':
-        return Icons.work;
-      case '睡前':
-        return Icons.bed;
-      case '周末放松':
-        return Icons.beach_access;
-      case '其他':
-        return Icons.more_horiz;
-      default:
-        return Icons.spa;
-    }
-  }
-
-  /// 获取场景颜色
-  Color _getSceneColor(String scene) {
-    switch (scene) {
-      case '下班回家':
-        return Colors.blue;
-      case '工作学习':
-        return Colors.green;
-      case '睡前':
-        return Colors.purple;
-      case '周末放松':
-        return Colors.orange;
-      case '其他':
-        return Colors.grey;
-      default:
-        return Colors.black;
-    }
   }
 
   @override
@@ -123,109 +107,100 @@ class _ScentLibraryPageState extends State<ScentLibraryPage> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(_defaultPadding),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.only(bottom: 16),
+              child: Text(
+                '以下是你在不同场景下最常用的气味组合，根据你保存的气味瞬间卡片自动统计',
+                style: TextStyle(color: Colors.grey),
+              ),
+            ),
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate:
+              const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 1,
+                childAspectRatio: 3,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+              ),
+              itemCount: _scentData.length,
+              itemBuilder: (_, index) => _buildSceneCard(_scentData[index]),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSceneCard(Map<String, dynamic> data) {
+    final scene = data['scene'] as String;
+    final color = _sceneColors[scene] ?? Colors.black;
+    final icon = _sceneIcons[scene] ?? Icons.spa;
+    // 修复：将可空 int 转为非空再比较，确保条件表达式为 bool
+    final int score = (data['score'] as int?) ?? 0;
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(_cardRadius),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Container(
+              width: _iconContainerSize,
+              height: _iconContainerSize,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(24),
+                color: color.withOpacity(0.1),
+              ),
+              child: Icon(icon, color: color, size: _iconSize),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // 页面描述
-                  const Padding(
-                    padding: EdgeInsets.only(bottom: 16),
-                    child: Text(
-                      '以下是你在不同场景下最常用的气味组合，根据你保存的气味瞬间卡片自动统计',
-                      style: TextStyle(color: Colors.grey),
+                  Text(
+                    scene,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
-                  // 场景卡片列表
-                  GridView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 1,
-                          childAspectRatio: 3,
-                          crossAxisSpacing: 12,
-                          mainAxisSpacing: 12,
-                        ),
-                    itemCount: _scentData.length,
-                    itemBuilder: (context, index) {
-                      final data = _scentData[index];
-                      return Card(
-                        elevation: 2,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Row(
-                            children: [
-                              // 场景图标
-                              Container(
-                                width: 48,
-                                height: 48,
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(24),
-                                  color: _getSceneColor(
-                                    data['scene'],
-                                  ).withOpacity(0.1),
-                                ),
-                                child: Icon(
-                                  _getSceneIcon(data['scene']),
-                                  color: _getSceneColor(data['scene']),
-                                  size: 24,
-                                ),
-                              ),
-                              const SizedBox(width: 16),
-                              // 场景信息
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      data['scene'],
-                                      style: const TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      data['scent_combo'],
-                                      style: TextStyle(color: Colors.grey[600]),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              // 评分和使用次数
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  Text(
-                                    '评分 ${data['score']}',
-                                    style: TextStyle(
-                                      color: data['score'] > 0
-                                          ? Colors.orange
-                                          : Colors.grey,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    '使用 ${data['count']} 次',
-                                    style: const TextStyle(
-                                      color: Colors.grey,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
+                  const SizedBox(height: 4),
+                  Text(
+                    data['scent_combo'] ?? '暂无记录',
+                    style: TextStyle(color: Colors.grey[600]),
                   ),
                 ],
               ),
             ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  '评分 $score',
+                  style: TextStyle(
+                    color: score > 0 ? Colors.orange : Colors.grey,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '使用 ${data['count']} 次',
+                  style: const TextStyle(color: Colors.grey, fontSize: 12),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

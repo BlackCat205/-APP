@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import '../AIScentAssistantPage.dart';
 
-/// AI 气味助手页面包装器
-/// 只提供返回功能，不显示标题（标题在子页面中显示）
+/// AI 气味助手页面的包装组件。
+/// 只提供一个干净的 Scaffold 容器，内部的标题栏和返回逻辑由
+/// [AIScentAssistantPage] 自身管理。
 class AIScentAssistantPageWrapper extends StatefulWidget {
   const AIScentAssistantPageWrapper({super.key});
 
@@ -16,7 +17,7 @@ class _AIScentAssistantPageWrapperState
   @override
   Widget build(BuildContext context) {
     return const Scaffold(
-      // 不设置appBar，让AIScentAssistantPage自己处理标题
+      // 不设置 AppBar，完全交由子页面处理
       body: AIScentAssistantPage(),
     );
   }

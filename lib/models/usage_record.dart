@@ -1,14 +1,17 @@
 /// 使用记录模型（单风扇记录）
+///
+/// [startTime]、[endTime] 和 [createdAt] 单位为毫秒时间戳；
+/// [duration] 单位为秒；[fanId] 范围 1-4
 class UsageRecord {
   final int? id;
-  final int startTime; // 开始时间戳（毫秒）
-  final int? endTime; // 结束时间戳（毫秒）
-  final int? duration; // 时长（秒）
-  final int fanId; // 单个风扇ID
-  final String? scentName; // 气味名称
-  final int createdAt; // 记录创建时间
+  final int startTime;
+  final int? endTime;
+  final int? duration;
+  final int fanId;
+  final String? scentName;
+  final int createdAt;
 
-  UsageRecord({
+  const UsageRecord({
     this.id,
     required this.startTime,
     this.endTime,
@@ -18,7 +21,7 @@ class UsageRecord {
     required this.createdAt,
   });
 
-  /// 从Map转换
+  /// 从数据库 Map 构造
   factory UsageRecord.fromMap(Map<String, dynamic> map) {
     return UsageRecord(
       id: map['id'] as int?,
@@ -31,20 +34,18 @@ class UsageRecord {
     );
   }
 
-  /// 转换为Map
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'start_time': startTime,
-      'end_time': endTime,
-      'duration': duration,
-      'fan_id': fanId,
-      'scent_name': scentName,
-      'created_at': createdAt,
-    };
-  }
+  /// 转换为数据库 Map
+  Map<String, dynamic> toMap() => {
+    'id': id,
+    'start_time': startTime,
+    'end_time': endTime,
+    'duration': duration,
+    'fan_id': fanId,
+    'scent_name': scentName,
+    'created_at': createdAt,
+  };
 
-  /// 复制并修改
+  /// 创建修改后的副本
   UsageRecord copyWith({
     int? id,
     int? startTime,

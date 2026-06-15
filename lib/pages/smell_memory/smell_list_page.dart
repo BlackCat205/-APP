@@ -1,10 +1,11 @@
-import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 
-/// 气味记忆列表页
+import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+/// 气味记忆列表页（按日期分组展示）
 class SmellListPage extends StatefulWidget {
-  const SmellListPage({Key? key}) : super(key: key);
+  const SmellListPage({super.key});
 
   @override
   State<SmellListPage> createState() => _SmellListPageState();
@@ -15,6 +16,13 @@ class _SmellListPageState extends State<SmellListPage>
   Map<String, List<Map<String, dynamic>>> _groupedMemories = {};
   List<String> _sortedDates = [];
   bool _isLoading = true;
+
+  // ========== 常量 ==========
+  static const Color _bgColor = Color(0xFFF5F0EB);
+  static const Color _textColor = Color(0xFF2D2D2D);
+  static const Color _greyTextColor = Color(0xFF8C8C8C);
+  static const Color _deleteColor = Color(0xFFE07A5F);
+  static const double _cardRadius = 12.0;
 
   @override
   bool get wantKeepAlive => true;
@@ -28,32 +36,17 @@ class _SmellListPageState extends State<SmellListPage>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // 当页面可见时重新加载数据
     _loadMemories();
   }
 
-  /// 加载记忆列表
+  /// 从 SharedPreferences 加载记忆
   Future<void> _loadMemories() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final memoryStrings = prefs.getStringList('smell_memories') ?? [];
 
-      // 解析记忆数据
       final memories = memoryStrings
-          .map((str) {
-            try {
-              // 尝试解析为JSON
-              return json.decode(str) as Map<String, dynamic>;
-            } catch (e) {
-              // 如果JSON解析失败，尝试解析旧的字符串格式
-              try {
-                return _parseOldMemoryString(str);
-              } catch (e2) {
-                print('解析记忆失败: $e2');
-                return <String, dynamic>{};
-              }
-            }
-          })
+          .map((str) => _parseMemory(str))
           .where((map) => map.isNotEmpty)
           .toList();
 
@@ -62,15 +55,11 @@ class _SmellListPageState extends State<SmellListPage>
       for (final memory in memories) {
         final timestamp = memory['timestamp'] as String?;
         if (timestamp != null) {
-          final date = timestamp.split(' ')[0];
-          if (!grouped.containsKey(date)) {
-            grouped[date] = [];
-          }
-          grouped[date]!.add(memory);
+          final date = timestamp.split(' ').first;
+          grouped.putIfAbsent(date, () => []).add(memory);
         }
       }
 
-      // 按日期倒序排列
       final sortedDates = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
 
       setState(() {
@@ -79,22 +68,31 @@ class _SmellListPageState extends State<SmellListPage>
         _isLoading = false;
       });
     } catch (e) {
-      print('加载记忆失败: $e');
-      setState(() {
-        _isLoading = false;
-      });
+      debugPrint('加载记忆失败: $e');
+      setState(() => _isLoading = false);
     }
   }
 
-  /// 解析旧的记忆字符串格式
+  /// 解析单条记忆（支持 JSON 与旧格式）
+  Map<String, dynamic> _parseMemory(String str) {
+    try {
+      return json.decode(str) as Map<String, dynamic>;
+    } catch (_) {
+      try {
+        return _parseOldMemoryString(str);
+      } catch (e) {
+        debugPrint('解析记忆失败: $e');
+        return {};
+      }
+    }
+  }
+
+  /// 解析旧的键值对记忆字符串
   Map<String, dynamic> _parseOldMemoryString(String str) {
     try {
-      // 移除首尾的大括号
       final cleanStr = str.substring(1, str.length - 1);
-      // 分割键值对
       final pairs = cleanStr.split(', ');
       final map = <String, dynamic>{};
-
       for (final pair in pairs) {
         final parts = pair.split(': ');
         if (parts.length == 2) {
@@ -103,10 +101,9 @@ class _SmellListPageState extends State<SmellListPage>
           map[key] = value;
         }
       }
-
       return map;
     } catch (e) {
-      print('解析旧格式记忆失败: $e');
+      debugPrint('解析旧格式记忆失败: $e');
       return {};
     }
   }
@@ -121,97 +118,76 @@ class _SmellListPageState extends State<SmellListPage>
           int.parse(parts[1]),
           int.parse(parts[2]),
         );
-        final weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+        const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
         return weekdays[date.weekday % 7];
       }
     } catch (e) {
-      print('解析日期失败: $e');
+      debugPrint('解析日期失败: $e');
     }
     return '';
   }
 
-  /// 显示记忆详情
+  /// 显示记忆详情弹窗
   void _showMemoryDetail(Map<String, dynamic> memory) {
     showDialog(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text(
-            memory['title'] ?? '未命名',
-            style: TextStyle(
-              fontWeight: FontWeight.w600,
-              color: const Color(0xFF2D2D2D),
-            ),
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (memory['emoji'] != null && memory['emoji']!.isNotEmpty)
-                  Text(memory['emoji']!, style: const TextStyle(fontSize: 48)),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    const Text('📅 '),
-                    Text(memory['timestamp']?.split(' ')[0] ?? ''),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [const Text('🏷 '), Text(memory['scene'] ?? '未知')],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    const Text('⏱ '),
-                    Text(memory['duration'] ?? '未知'),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    const Text('🧪 '),
-                    Text(memory['recipe']?.replaceAll(',', '/') ?? '未知'),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  '笔记:',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: const Color(0xFF2D2D2D),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  memory['note']?.isNotEmpty ?? false
-                      ? memory['note']!
-                      : '(无笔记)',
-                  style: TextStyle(color: const Color(0xFF2D2D2D)),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-              },
-              child: const Text('关闭'),
-            ),
-            TextButton(
-              onPressed: () {
-                _deleteMemory(memory);
-                Navigator.pop(context);
-              },
-              child: Text(
-                '删除',
-                style: TextStyle(color: const Color(0xFFE07A5F)),
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+          memory['title'] ?? '未命名',
+          style: const TextStyle(fontWeight: FontWeight.w600, color: _textColor),
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (memory['emoji'] != null && memory['emoji']!.isNotEmpty)
+                Text(memory['emoji']!, style: const TextStyle(fontSize: 48)),
+              const SizedBox(height: 16),
+              _detailRow('📅 ', (memory['timestamp'] as String?)?.split(' ').first ?? ''),
+              const SizedBox(height: 8),
+              _detailRow('🏷 ', memory['scene'] ?? '未知'),
+              const SizedBox(height: 8),
+              _detailRow('⏱ ', memory['duration'] ?? '未知'),
+              const SizedBox(height: 8),
+              _detailRow('🧪 ', (memory['recipe'] as String?)?.replaceAll(',', '/') ?? '未知'),
+              const SizedBox(height: 16),
+              const Text(
+                '笔记:',
+                style: TextStyle(fontWeight: FontWeight.w600, color: _textColor),
               ),
-            ),
-          ],
-        );
-      },
+              const SizedBox(height: 8),
+              Text(
+                (memory['note'] is String && (memory['note'] as String).isNotEmpty)
+                    ? memory['note']!
+                    : '(无笔记)',
+                style: const TextStyle(color: _textColor),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('关闭'),
+          ),
+          TextButton(
+            onPressed: () {
+              _deleteMemory(memory);
+              Navigator.pop(dialogContext);
+            },
+            child: const Text('删除', style: TextStyle(color: _deleteColor)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _detailRow(String icon, String text) {
+    return Row(
+      children: [
+        Text(icon),
+        Text(text),
+      ],
     );
   }
 
@@ -220,188 +196,164 @@ class _SmellListPageState extends State<SmellListPage>
     try {
       final prefs = await SharedPreferences.getInstance();
       final memoryStrings = prefs.getStringList('smell_memories') ?? [];
-
-      // 找到要删除的记忆
       final id = memory['id'] as String?;
       if (id != null) {
-        final updatedMemories = memoryStrings.where((str) {
+        final updated = memoryStrings.where((str) {
           try {
-            // 尝试解析为JSON
             final map = json.decode(str) as Map<String, dynamic>;
             return map['id'] != id;
-          } catch (e) {
-            // 如果JSON解析失败，尝试解析旧的字符串格式
+          } catch (_) {
             try {
               final map = _parseOldMemoryString(str);
               return map['id'] != id;
-            } catch (e2) {
-              print('解析记忆失败: $e2');
+            } catch (e) {
+              debugPrint('解析记忆失败: $e');
               return true;
             }
           }
         }).toList();
 
-        // 保存更新后的列表
-        await prefs.setStringList('smell_memories', updatedMemories);
-
-        // 重新加载数据
+        await prefs.setStringList('smell_memories', updated);
         _loadMemories();
       }
     } catch (e) {
-      print('删除记忆失败: $e');
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('删除失败，请重试')));
+      debugPrint('删除记忆失败: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('删除失败，请重试')),
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    super.build(context); // 必须调用
+    super.build(context); // AutomaticKeepAliveClientMixin 要求
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F0EB),
+      backgroundColor: _bgColor,
       appBar: AppBar(
-        title: Text(
+        title: const Text(
           '气味记忆',
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            color: const Color(0xFF2D2D2D),
-          ),
+          style: TextStyle(fontWeight: FontWeight.w600, color: _textColor),
         ),
-        backgroundColor: const Color(0xFFF5F0EB),
+        backgroundColor: _bgColor,
         elevation: 0,
         centerTitle: true,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () {
-            Navigator.pop(context);
-          },
+          onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _groupedMemories.isEmpty
-          ? Center(
+      body: _buildBody(),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_sortedDates.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text('🌿', style: TextStyle(fontSize: 48)),
+            const SizedBox(height: 16),
+            Text(
+              '还没有气味瞬间，开始你的第一次气味之旅吧',
+              style: const TextStyle(fontSize: 16, color: _greyTextColor),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(24),
+      itemCount: _sortedDates.length,
+      itemBuilder: (context, dateIndex) {
+        final date = _sortedDates[dateIndex];
+        final memories = _groupedMemories[date]!;
+        return _buildDateGroup(date, memories);
+      },
+    );
+  }
+
+  Widget _buildDateGroup(String date, List<Map<String, dynamic>> memories) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Text(
+            '📅 ${date.replaceAll('-', '.')} ${_getWeekday(date)}',
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: _textColor,
+            ),
+          ),
+        ),
+        ...memories.map((memory) => _buildMemoryCard(memory)),
+      ],
+    );
+  }
+
+  Widget _buildMemoryCard(Map<String, dynamic> memory) {
+    return GestureDetector(
+      onTap: () => _showMemoryDetail(memory),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(_cardRadius),
+        ),
+        child: Row(
+          children: [
+            Container(
+              margin: const EdgeInsets.only(right: 16),
+              child: Text(
+                memory['emoji'] ?? '😌',
+                style: const TextStyle(fontSize: 40),
+              ),
+            ),
+            Expanded(
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('🌿', style: TextStyle(fontSize: 48)),
-                  const SizedBox(height: 16),
                   Text(
-                    '还没有气味瞬间，开始你的第一次气味之旅吧',
-                    style: TextStyle(
+                    memory['title'] ?? '未命名',
+                    style: const TextStyle(
                       fontSize: 16,
-                      color: const Color(0xFF8C8C8C),
+                      fontWeight: FontWeight.w600,
+                      color: _textColor,
                     ),
-                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${memory['scene'] ?? '未知'} · ${memory['duration'] ?? '未知'}',
+                    style: const TextStyle(fontSize: 12, color: _greyTextColor),
+                  ),
+                  const SizedBox(height: 8),
+                  const Divider(height: 1, color: _bgColor),
+                  const SizedBox(height: 8),
+                  Text(
+                    (memory['note'] is String && (memory['note'] as String).isNotEmpty)
+                        ? memory['note']!
+                        : '(无笔记)',
+                    style: const TextStyle(fontSize: 14, color: _textColor),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),
-            )
-          : ListView.builder(
-              padding: const EdgeInsets.all(24),
-              itemCount: _sortedDates.length,
-              itemBuilder: (context, dateIndex) {
-                final date = _sortedDates[dateIndex];
-                final memories = _groupedMemories[date]!;
-
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // 日期分组标题
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Text(
-                        '📅 ${date.replaceAll('-', '.')} ${_getWeekday(date)}',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: const Color(0xFF2D2D2D),
-                        ),
-                      ),
-                    ),
-
-                    // 记忆卡片
-                    ...memories.map((memory) {
-                      return GestureDetector(
-                        onTap: () {
-                          _showMemoryDetail(memory);
-                        },
-                        child: Container(
-                          margin: const EdgeInsets.only(bottom: 16),
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Row(
-                            children: [
-                              // 大号emoji
-                              Container(
-                                margin: const EdgeInsets.only(right: 16),
-                                child: Text(
-                                  memory['emoji'] ?? '😌',
-                                  style: const TextStyle(fontSize: 40),
-                                ),
-                              ),
-
-                              // 右侧内容
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    // 记忆标题
-                                    Text(
-                                      memory['title'] ?? '未命名',
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w600,
-                                        color: const Color(0xFF2D2D2D),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-
-                                    // 场景·时长
-                                    Text(
-                                      '${memory['scene'] ?? '未知'} · ${memory['duration'] ?? '未知'}',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: const Color(0xFF8C8C8C),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-
-                                    // 分割线
-                                    Container(
-                                      height: 1,
-                                      color: const Color(0xFFF5F0EB),
-                                    ),
-                                    const SizedBox(height: 8),
-
-                                    // 笔记预览
-                                    Text(
-                                      memory['note']?.isNotEmpty ?? false
-                                          ? memory['note']!
-                                          : '(无笔记)',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: const Color(0xFF2D2D2D),
-                                      ),
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ],
-                );
-              },
             ),
+          ],
+        ),
+      ),
     );
   }
 }

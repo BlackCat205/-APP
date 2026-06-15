@@ -11,27 +11,26 @@
 .svn/
 .swiftpm/
 migrate_working_dir/
+/logs/
 
-# IntelliJ related
+# IntelliJ / Trae IDE related
 *.iml
 *.ipr
 *.iws
 .idea/
-
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
+.vscode/
 
 # Flutter/Dart/Pub related
 **/doc/api/
 **/ios/Flutter/.last_build_id
 .dart_tool/
+.flutter-plugins
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
 /build/
 /coverage/
+/lib/generated_plugin_registrant.dart
 
 # Symbolication related
 app.*.symbols
@@ -39,7 +38,45 @@ app.*.symbols
 # Obfuscation related
 app.*.map.json
 
-# Android Studio will place build artifacts here
+# Android build artifacts
 /android/app/debug
 /android/app/profile
 /android/app/release
+/android/.gradle
+/android/build/
+
+# iOS 编译缓存
+/ios/Pods/
+/ios/Podfile.lock
+/ios/Runner.xcworkspace
+/ios/Runner.xcodeproj/xcuserdata/
+
+# macOS
+/macos/Pods/
+/macos/Podfile.lock
+/macos/build/
+
+# Windows 打包产物
+/windows/runner/Release
+/windows/runner/Profile
+/windows/runner/Debug
+/windows/build/
+
+# 本地数据库、Hive缓存
+*.hive
+*.hive.lock
+*.hive.log
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# 密钥、本地私有配置（防止接口密钥泄露）
+*.env
+.env.local
+secret*.dart
+*_secret.json
+spark_api_key.txt
+al_secret.txt
+
+# 本地持久化偏好缓存
+*.sharedprefs

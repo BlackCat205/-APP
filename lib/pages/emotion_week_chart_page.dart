@@ -1,11 +1,10 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 import '../database/app_database.dart';
 import '../services/usage_record_service.dart';
 
-/// 情绪周报曲线图页面
+/// 情绪周报曲线图页面（带自定义绘制）
 class EmotionWeekChartPage extends StatefulWidget {
-  const EmotionWeekChartPage({Key? key}) : super(key: key);
+  const EmotionWeekChartPage({super.key});
 
   @override
   State<EmotionWeekChartPage> createState() => _EmotionWeekChartPageState();
@@ -17,14 +16,22 @@ class _EmotionWeekChartPageState extends State<EmotionWeekChartPage> {
   Map<String, dynamic> _summary = {};
   bool _isLoading = true;
 
-  // 5个固定表情包对应关系（与气味瞬间编辑页面一致）
-  final Map<String, Map<String, dynamic>> _emojiMap = {
-    '😌': {'label': '平静安稳', 'color': Colors.blue[100]!},
-    '🥰': {'label': '愉悦轻松', 'color': Colors.green[100]!},
-    '😭': {'label': '低落难过', 'color': Colors.purple[100]!},
-    '😤': {'label': '焦虑压力', 'color': Colors.red[100]!},
-    '😴': {'label': '困倦想睡', 'color': Colors.yellow[100]!},
+  // 表情与标签、颜色的映射
+  static const Map<String, Map<String, dynamic>> _emojiMap = {
+    '😌': {'label': '平静安稳', 'color': Color(0xFFBBDEFB)},
+    '🥰': {'label': '愉悦轻松', 'color': Color(0xFFC8E6C9)},
+    '😭': {'label': '低落难过', 'color': Color(0xFFE1BEE7)},
+    '😤': {'label': '焦虑压力', 'color': Color(0xFFFFCDD2)},
+    '😴': {'label': '困倦想睡', 'color': Color(0xFFFFF9C4)},
   };
+
+  // ========== 样式常量 ==========
+  static const Color _bgColor = Color(0xFFF5F0EB);
+  static const Color _textColor = Color(0xFF2D2D2D);
+  static const Color _greyTextColor = Color(0xFF8C8C8C);
+  static const Color _accentGreen = Color(0xFFA8D8B9);
+  static const double _defaultRadius = 8.0;
+  static const double _cardRadius = 12.0;
 
   @override
   void initState() {
@@ -32,28 +39,21 @@ class _EmotionWeekChartPageState extends State<EmotionWeekChartPage> {
     _loadWeekData();
   }
 
-  /// 加载周报数据 - 从气味瞬间表读取心情数据
   Future<void> _loadWeekData() async {
-    setState(() {
-      _isLoading = true;
-    });
-
+    setState(() => _isLoading = true);
     try {
       final db = await AppDatabase().database;
-
-      // 计算本周和上周的时间范围
       final now = DateTime.now();
       final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
-      final startOfLastWeek = startOfWeek.subtract(Duration(days: 7));
+      final startOfLastWeek = startOfWeek.subtract(const Duration(days: 7));
 
       final startTimestamp = _selectedPeriod == '本周'
-          ? startOfWeek.millisecondsSinceEpoch
-          : startOfLastWeek.millisecondsSinceEpoch;
+          ? DateTime(startOfWeek.year, startOfWeek.month, startOfWeek.day).millisecondsSinceEpoch
+          : DateTime(startOfLastWeek.year, startOfLastWeek.month, startOfLastWeek.day).millisecondsSinceEpoch;
       final endTimestamp = _selectedPeriod == '本周'
           ? now.millisecondsSinceEpoch
-          : startOfWeek.subtract(Duration(seconds: 1)).millisecondsSinceEpoch;
+          : DateTime(startOfWeek.year, startOfWeek.month, startOfWeek.day).subtract(const Duration(seconds: 1)).millisecondsSinceEpoch;
 
-      // 从气味瞬间表查询数据（获取心情数据）
       final records = await db.query(
         'smell_moment_record',
         where: 'created_at >= ? AND created_at < ?',
@@ -64,8 +64,8 @@ class _EmotionWeekChartPageState extends State<EmotionWeekChartPage> {
       // 按日期分组
       final recordsByDate = <String, List<Map<String, dynamic>>>{};
       for (final record in records) {
-        final timestamp = record['created_at'] as int;
-        final date = DateTime.fromMillisecondsSinceEpoch(timestamp);
+        final ts = record['created_at'] as int;
+        final date = DateTime.fromMillisecondsSinceEpoch(ts);
         final dateStr =
             '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
         recordsByDate.putIfAbsent(dateStr, () => []).add(record);
@@ -73,49 +73,42 @@ class _EmotionWeekChartPageState extends State<EmotionWeekChartPage> {
 
       // 生成一周7天的数据
       final weekData = <Map<String, dynamic>>[];
-      final dayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+      const dayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 
+      final baseDate = _selectedPeriod == '本周' ? startOfWeek : startOfLastWeek;
       for (int i = 0; i < 7; i++) {
-        final targetDate = _selectedPeriod == '本周'
-            ? startOfWeek.add(Duration(days: i))
-            : startOfLastWeek.add(Duration(days: i));
+        final targetDate = baseDate.add(Duration(days: i));
         final dateStr =
             '${targetDate.year}-${targetDate.month.toString().padLeft(2, '0')}-${targetDate.day.toString().padLeft(2, '0')}';
         final dayRecords = recordsByDate[dateStr] ?? [];
 
-        // 统计当天情绪分布（从气味瞬间表的 emotion_emoji 字段）
         final emotionCount = <String, int>{};
         final scentCount = <String, int>{};
-
-        for (final record in dayRecords) {
-          final emotion = record['emotion_emoji'] as String?;
-          if (emotion != null && emotion.isNotEmpty) {
-            emotionCount[emotion] = (emotionCount[emotion] ?? 0) + 1;
+        for (final r in dayRecords) {
+          final emoji = r['emotion_emoji'] as String?;
+          if (emoji != null && emoji.isNotEmpty) {
+            emotionCount[emoji] = (emotionCount[emoji] ?? 0) + 1;
           }
-          final scent = record['scent_name'] as String?;
+          final scent = r['scent_name'] as String?;
           if (scent != null && scent.isNotEmpty) {
             scentCount[scent] = (scentCount[scent] ?? 0) + 1;
           }
         }
 
-        // 找出当天最常见的情绪（从气味瞬间表统计）
-        String topEmotion = ''; // 无记录时为空
-        int maxEmotionCount = 0;
-        if (dayRecords.isNotEmpty) {
-          emotionCount.forEach((emotion, count) {
-            if (count > maxEmotionCount) {
-              maxEmotionCount = count;
-              topEmotion = emotion;
-            }
-          });
-        }
+        String topEmotion = '';
+        int maxEmotion = 0;
+        emotionCount.forEach((emoji, count) {
+          if (count > maxEmotion) {
+            maxEmotion = count;
+            topEmotion = emoji;
+          }
+        });
 
-        // 找出当天最常见的气味
         String topScent = '无';
-        int maxScentCount = 0;
+        int maxScent = 0;
         scentCount.forEach((scent, count) {
-          if (count > maxScentCount) {
-            maxScentCount = count;
+          if (count > maxScent) {
+            maxScent = count;
             topScent = scent;
           }
         });
@@ -131,41 +124,31 @@ class _EmotionWeekChartPageState extends State<EmotionWeekChartPage> {
         });
       }
 
-      // 计算周报汇总
-      // 使用 CardTriggerRecordService 获取本周卡片弹出次数（与 EmotionWeekReportPage 一致）
-      int totalCount = await CardTriggerRecordService.getWeekRecordCount();
-
-      // 获取本周最常用气味（与 EmotionWeekReportPage 一致）
-      String mostCommonScent = '无';
+      // 汇总统计
+      final totalCount = await CardTriggerRecordService.getWeekRecordCount();
       final weeklyScentStats = await UsageRecordService.getWeeklyScentStats();
-      if (weeklyScentStats.isNotEmpty) {
-        mostCommonScent = weeklyScentStats.first['scent_name'] as String;
-      }
+      final mostCommonScent = (weeklyScentStats.isNotEmpty)
+          ? weeklyScentStats.first['scent_name'] as String
+          : '无';
 
       final allEmotionCount = <String, int>{};
-
-      for (final record in records) {
-        final emotion = record['emotion_emoji'] as String?;
-        if (emotion != null && emotion.isNotEmpty) {
-          allEmotionCount[emotion] = (allEmotionCount[emotion] ?? 0) + 1;
+      for (final r in records) {
+        final emoji = r['emotion_emoji'] as String?;
+        if (emoji != null && emoji.isNotEmpty) {
+          allEmotionCount[emoji] = (allEmotionCount[emoji] ?? 0) + 1;
         }
       }
 
-      // 找出本周最常见的情绪（从气味瞬间表统计）
       String mostCommonEmotion = '😌';
-      int maxEmotion = 0;
-      allEmotionCount.forEach((emotion, count) {
-        if (count > maxEmotion) {
-          maxEmotion = count;
-          mostCommonEmotion = emotion;
+      int maxEmotionCount = 0;
+      allEmotionCount.forEach((emoji, count) {
+        if (count > maxEmotionCount) {
+          maxEmotionCount = count;
+          mostCommonEmotion = emoji;
         }
       });
 
-      // 生成智能分析结论
-      String analysisConclusion = _generateAnalysisConclusion(
-        allEmotionCount,
-        totalCount,
-      );
+      final analysisConclusion = _generateAnalysisConclusion(allEmotionCount, totalCount);
 
       setState(() {
         _weekData = weekData;
@@ -178,47 +161,37 @@ class _EmotionWeekChartPageState extends State<EmotionWeekChartPage> {
         _isLoading = false;
       });
     } catch (e) {
-      print('加载周报数据失败: $e');
-      setState(() {
-        _isLoading = false;
-      });
+      debugPrint('加载周报数据失败: $e');
+      setState(() => _isLoading = false);
     }
   }
 
-  /// 生成智能分析结论（使用 emoji 格式的情绪数据）
-  String _generateAnalysisConclusion(
-    Map<String, int> emotionCount,
-    int totalCount,
-  ) {
-    if (totalCount == 0) {
-      return '本周暂无使用记录，记得给自己一点疗愈时间';
+  String _generateAnalysisConclusion(Map<String, int> emotionCount, int totalCount) {
+    if (totalCount == 0) return '本周暂无使用记录，记得给自己一点疗愈时间';
+
+    const negativeEmotions = ['😔', '😰', '😤', '😭', '😡', '😖'];
+    int negativeCount = 0;
+    for (final emotion in negativeEmotions) {
+      negativeCount += emotionCount[emotion] ?? 0;
     }
 
-    // 计算各情绪占比（使用 emoji 格式）
-    final negativeEmotions = ['😔', '😰', '😤', '😭', '😡', '😖']; // 负面情绪
-    int negativeCount = 0;
-    negativeEmotions.forEach((emotion) {
-      negativeCount += emotionCount[emotion] ?? 0;
-    });
-
-    final positiveEmotions = ['😌', '😊']; // 平静安稳、愉悦轻松
+    const positiveEmotions = ['😌', '😊'];
     int positiveCount = 0;
-    positiveEmotions.forEach((emotion) {
+    for (final emotion in positiveEmotions) {
       positiveCount += emotionCount[emotion] ?? 0;
-    });
+    }
 
     if (negativeCount / totalCount >= 0.5) {
       return '本周情绪偏低落，建议多使用舒缓类香氛，给自己更多放松时间';
     } else if (positiveCount / totalCount >= 0.7) {
       return '本周心情愉悦，继续保持良好状态';
-    } else if (emotionCount['😴'] != null && emotionCount['😴']! >= 3) {
+    } else if ((emotionCount['😴'] ?? 0) >= 3) {
       return '本周较为困倦，建议调整作息时间，使用提神类香氛';
     } else {
       return '本周情绪稳定，继续保持规律的使用习惯';
     }
   }
 
-  /// 切换周期间隔
   void _togglePeriod() {
     setState(() {
       _selectedPeriod = _selectedPeriod == '本周' ? '上周' : '本周';
@@ -229,450 +202,318 @@ class _EmotionWeekChartPageState extends State<EmotionWeekChartPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F0EB),
+      backgroundColor: _bgColor,
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // 标题和周期选择
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      // 返回按钮
-                      GestureDetector(
-                        onTap: () => Navigator.pop(context),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFA8D8B9).withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: const [
-                              Icon(
-                                Icons.arrow_back,
-                                size: 18,
-                                color: Color(0xFF2D2D2D),
-                              ),
-                              SizedBox(width: 4),
-                              Text(
-                                '返回',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Color(0xFF2D2D2D),
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      // 页面标题
-                      const Expanded(
-                        child: Text(
-                          '情绪周报',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF2D2D2D),
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      // 周期切换按钮
-                      GestureDetector(
-                        onTap: _togglePeriod,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFA8D8B9),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            _selectedPeriod == '本周' ? '查看上周' : '查看本周',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildHeader(),
+            const SizedBox(height: 24),
+            _buildSummaryCard(),
+            const SizedBox(height: 32),
+            _buildChartCard(),
+            const SizedBox(height: 32),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        GestureDetector(
+          onTap: () => Navigator.pop(context),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: _accentGreen.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(_defaultRadius),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.arrow_back, size: 18, color: _textColor),
+                SizedBox(width: 4),
+                Text(
+                  '返回',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: _textColor,
+                    fontWeight: FontWeight.w500,
                   ),
-                  const SizedBox(height: 24),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const Expanded(
+          child: Text(
+            '情绪周报',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: _textColor),
+            textAlign: TextAlign.center,
+          ),
+        ),
+        GestureDetector(
+          onTap: _togglePeriod,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: const BoxDecoration(
+              color: _accentGreen,
+              borderRadius: BorderRadius.all(Radius.circular(_defaultRadius)),
+            ),
+            child: Text(
+              _selectedPeriod == '本周' ? '查看上周' : '查看本周',
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 
-                  // 周报汇总卡片
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.grey.withOpacity(0.1),
-                          spreadRadius: 2,
-                          blurRadius: 4,
-                          offset: Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '本周心情曲线',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: const Color(0xFF2D2D2D),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
+  Widget _buildSummaryCard() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(_cardRadius),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 2,
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '本周心情曲线',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: _textColor),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(child: _summaryRow('本周最常见心情', '${_summary['mostCommonEmotion'] ?? '😌'}')),
+              Expanded(child: _summaryRow('本周最常用气味', _summary['mostCommonScent'] ?? '无')),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _summaryRow('本周使用次数', '${_summary['totalCount'] ?? 0} 次'),
+          const SizedBox(height: 16),
+          _conclusionRow('智能分析结论', _summary['analysisConclusion'] ?? '暂无数据'),
+        ],
+      ),
+    );
+  }
 
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    '本周最常见心情',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: const Color(0xFF8C8C8C),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    '${_summary['mostCommonEmotion'] ?? '😌'}',
-                                    style: TextStyle(
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.w500,
-                                      color: const Color(0xFF2D2D2D),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    '本周最常用气味',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: const Color(0xFF8C8C8C),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    _summary['mostCommonScent'] ?? '无',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w500,
-                                      color: const Color(0xFF2D2D2D),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
+  Widget _summaryRow(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 14, color: _greyTextColor)),
+        const SizedBox(height: 4),
+        Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: _textColor)),
+      ],
+    );
+  }
 
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    '本周使用次数',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: const Color(0xFF8C8C8C),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    '${_summary['totalCount'] ?? 0} 次',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w500,
-                                      color: const Color(0xFF2D2D2D),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
+  Widget _conclusionRow(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 14, color: _greyTextColor)),
+        const SizedBox(height: 4),
+        Text(value, style: const TextStyle(fontSize: 14, color: _textColor, fontStyle: FontStyle.italic)),
+      ],
+    );
+  }
 
-                        Text(
-                          '智能分析结论',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: const Color(0xFF8C8C8C),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _summary['analysisConclusion'] ?? '暂无数据',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: const Color(0xFF2D2D2D),
-                            fontStyle: FontStyle.italic,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-
-                  // 心情变化曲线图
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.grey.withOpacity(0.1),
-                          spreadRadius: 2,
-                          blurRadius: 4,
-                          offset: Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      children: [
-                        Text(
-                          '心情变化曲线',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: const Color(0xFF2D2D2D),
-                          ),
-                        ),
-                        const SizedBox(height: 32),
-
-                        // 心情变化曲线图 - 正方形自适应
-                        AspectRatio(
-                          aspectRatio: 1.0,
-                          child: Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 8),
-                            child: CustomPaint(
-                              painter: _EmotionChartPainter(
-                                weekData: _weekData,
-                                emojiMap: _emojiMap,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 32),
-                ],
+  Widget _buildChartCard() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(_cardRadius),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 2,
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          const Text(
+            '心情变化曲线',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: _textColor),
+          ),
+          const SizedBox(height: 32),
+          AspectRatio(
+            aspectRatio: 1.0,
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 8),
+              child: CustomPaint(
+                painter: _EmotionChartPainter(
+                  weekData: _weekData,
+                  emojiMap: _emojiMap,
+                ),
               ),
             ),
+          ),
+        ],
+      ),
     );
   }
 }
 
-/// 情绪曲线图绘制器
+/// 情绪曲线图绘制器（保持原有逻辑，仅提取常量）
 class _EmotionChartPainter extends CustomPainter {
   final List<Map<String, dynamic>> weekData;
   final Map<String, Map<String, dynamic>> emojiMap;
 
   _EmotionChartPainter({required this.weekData, required this.emojiMap});
 
+  static const Color _gridColor = Color(0xFFE0E0E0);
+  static const Color _textColor = Color(0xFF2D2D2D);
+  static const Color _greyTextColor = Color(0xFF8C8C8C);
+  static const Color _curveColor = Color(0xFFA8D8B9);
+  static const double _leftPadding = 70.0;
+  static const double _rightPadding = 12.0;
+  static const double _topPadding = 12.0;
+  static const double _bottomPadding = 50.0;
+
   @override
   void paint(Canvas canvas, Size size) {
     final width = size.width;
     final height = size.height;
-    // 正方形布局：左右边距给竖轴标签留空间
-    final leftPadding = 70.0;
-    final rightPadding = 12.0;
-    final topPadding = 12.0;
-    final bottomPadding = 50.0;
-    final chartWidth = width - leftPadding - rightPadding;
-    final chartHeight = height - topPadding - bottomPadding;
+    final chartWidth = width - _leftPadding - _rightPadding;
+    final chartHeight = height - _topPadding - _bottomPadding;
 
-    // 绘制网格
     final gridPaint = Paint()
-      ..color = Colors.grey[200]!
+      ..color = _gridColor
       ..strokeWidth = 1;
 
-    // 竖轴网格（5条水平线）
+    // 绘制网格
     for (int i = 0; i < 6; i++) {
-      final y = topPadding + i * (chartHeight / 5);
+      final y = _topPadding + i * (chartHeight / 5);
       canvas.drawLine(
-        Offset(leftPadding, y),
-        Offset(width - rightPadding, y),
+        Offset(_leftPadding, y),
+        Offset(width - _rightPadding, y),
         gridPaint,
       );
     }
-
-    // 横轴网格（7条垂直线 + 边界线）
     for (int i = 0; i < 8; i++) {
-      final x = leftPadding + i * (chartWidth / 7);
+      final x = _leftPadding + i * (chartWidth / 7);
       canvas.drawLine(
-        Offset(x, topPadding),
-        Offset(x, height - bottomPadding),
+        Offset(x, _topPadding),
+        Offset(x, height - _bottomPadding),
         gridPaint,
       );
     }
 
-    // 绘制竖轴标签（左侧）- 文字标签在左，表情包在右
-    final labelTextStyle = TextStyle(
-      fontSize: 11,
-      color: const Color(0xFF2D2D2D),
-    );
-
-    // 竖轴顺序：从上到下依次为：焦虑压力、低落难过、困倦想睡、愉悦轻松、平静安稳（使用 emoji 作为 key）
-    final emotions = ['😤', '😭', '😴', '🥰', '😌'];
+    // 竖轴标签
+    const labelStyle = TextStyle(fontSize: 11, color: _textColor);
+    const emotions = ['😤', '😭', '😴', '🥰', '😌'];
     for (int i = 0; i < emotions.length; i++) {
       final emotion = emotions[i];
-      final y = topPadding + i * (chartHeight / 5) + (chartHeight / 10);
+      final y = _topPadding + i * (chartHeight / 5) + (chartHeight / 10);
 
-      // 先绘制文字标签（最左侧）
-      final labelSpan = TextSpan(
-        text: emojiMap[emotion]?['label'],
-        style: labelTextStyle,
-      );
       final labelPainter = TextPainter(
-        text: labelSpan,
+        text: TextSpan(text: emojiMap[emotion]?['label'], style: labelStyle),
         textDirection: TextDirection.ltr,
-      );
-      labelPainter.layout();
+      )..layout();
       labelPainter.paint(canvas, Offset(4, y - labelPainter.height / 2));
 
-      // 再绘制表情包（文字标签右侧，保持间距）
-      final emojiSpan = TextSpan(text: emotion, style: TextStyle(fontSize: 14));
       final emojiPainter = TextPainter(
-        text: emojiSpan,
+        text: TextSpan(text: emotion, style: const TextStyle(fontSize: 14)),
         textDirection: TextDirection.ltr,
-      );
-      emojiPainter.layout();
+      )..layout();
       emojiPainter.paint(
         canvas,
         Offset(4 + labelPainter.width + 6, y - emojiPainter.height / 2),
       );
     }
 
-    // 绘制横轴标签（底部）
+    // 横轴标签
     for (int i = 0; i < weekData.length; i++) {
       final dayData = weekData[i];
-      final x = leftPadding + i * (chartWidth / 7) + (chartWidth / 14);
+      final x = _leftPadding + i * (chartWidth / 7) + (chartWidth / 14);
 
-      // 绘制日期（如 4.26）
-      final dateSpan = TextSpan(
-        text: dayData['displayDate'],
-        style: TextStyle(fontSize: 10, color: const Color(0xFF2D2D2D)),
-      );
       final datePainter = TextPainter(
-        text: dateSpan,
+        text: TextSpan(
+          text: dayData['displayDate'],
+          style: const TextStyle(fontSize: 10, color: _textColor),
+        ),
         textDirection: TextDirection.ltr,
-      );
-      datePainter.layout();
+      )..layout();
       datePainter.paint(
         canvas,
-        Offset(x - datePainter.width / 2, height - bottomPadding + 5),
+        Offset(x - datePainter.width / 2, height - _bottomPadding + 5),
       );
 
-      // 绘制星期（如 周一）
-      final daySpan = TextSpan(
-        text: dayData['dayOfWeek'],
-        style: TextStyle(fontSize: 9, color: const Color(0xFF8C8C8C)),
-      );
       final dayPainter = TextPainter(
-        text: daySpan,
+        text: TextSpan(
+          text: dayData['dayOfWeek'],
+          style: const TextStyle(fontSize: 9, color: _greyTextColor),
+        ),
         textDirection: TextDirection.ltr,
-      );
-      dayPainter.layout();
+      )..layout();
       dayPainter.paint(
         canvas,
-        Offset(x - dayPainter.width / 2, height - bottomPadding + 18),
+        Offset(x - dayPainter.width / 2, height - _bottomPadding + 18),
       );
     }
 
     // 绘制曲线
     if (weekData.isNotEmpty) {
       final curvePaint = Paint()
-        ..color = const Color(0xFFA8D8B9)
+        ..color = _curveColor
         ..strokeWidth = 2.5
         ..style = PaintingStyle.stroke;
 
-      // 情绪值到竖轴位置的映射（基于竖轴顺序，使用 emoji）
-      final emotionToY = (String emotion) {
-        if (emotion == '😤') return 0; // 焦虑压力
-        if (emotion == '😭') return 1; // 低落难过
-        if (emotion == '😴') return 2; // 困倦想睡
-        if (emotion == '🥰') return 3; // 愉悦轻松
-        if (emotion == '😌') return 4; // 平静安稳
-        return 4; // 默认平静安稳
-      };
+      int emotionToY(String emotion) {
+        if (emotion == '😤') return 0;
+        if (emotion == '😭') return 1;
+        if (emotion == '😴') return 2;
+        if (emotion == '🥰') return 3;
+        if (emotion == '😌') return 4;
+        return 4;
+      }
 
       Offset? lastPoint;
-
       for (int i = 0; i < weekData.length; i++) {
         final dayData = weekData[i];
         final topEmotion = dayData['topEmotion'] as String;
-        final x = leftPadding + i * (chartWidth / 7) + (chartWidth / 14);
+        final x = _leftPadding + i * (chartWidth / 7) + (chartWidth / 14);
 
         if (topEmotion.isNotEmpty) {
-          // 有数据的天
           final yIndex = emotionToY(topEmotion);
-          final y =
-              topPadding + yIndex * (chartHeight / 5) + (chartHeight / 10);
+          final y = _topPadding + yIndex * (chartHeight / 5) + (chartHeight / 10);
           final currentPoint = Offset(x, y);
 
-          // 绘制线段（如果上一个点存在）
           if (lastPoint != null) {
             canvas.drawLine(lastPoint, currentPoint, curvePaint);
           }
+          canvas.drawCircle(currentPoint, 5, Paint()..color = _curveColor);
 
-          // 绘制数据点
-          canvas.drawCircle(
-            currentPoint,
-            5,
-            Paint()..color = const Color(0xFFA8D8B9),
-          );
-
-          // 在点上方绘制表情包（topEmotion 已经是 emoji 格式）
-          final emojiSpan = TextSpan(
-            text: topEmotion,
-            style: TextStyle(fontSize: 18),
-          );
           final emojiPainter = TextPainter(
-            text: emojiSpan,
+            text: TextSpan(text: topEmotion, style: const TextStyle(fontSize: 18)),
             textDirection: TextDirection.ltr,
-          );
-          emojiPainter.layout();
-          emojiPainter.paint(
-            canvas,
-            Offset(x - emojiPainter.width / 2, y - 24),
-          );
+          )..layout();
+          emojiPainter.paint(canvas, Offset(x - emojiPainter.width / 2, y - 24));
 
           lastPoint = currentPoint;
         } else {
-          // 无数据的天，曲线断开
           lastPoint = null;
         }
       }
@@ -680,7 +521,5 @@ class _EmotionChartPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) {
-    return true;
-  }
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }

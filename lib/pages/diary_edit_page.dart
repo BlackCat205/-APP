@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import '../database/dao/scent_diary_note_dao.dart';
 import '../database/models/scent_diary_note.dart';
 
-/// 日记编辑页面
+/// 日记编辑页面（新增今日心情日记）
 class DiaryEditPage extends StatefulWidget {
-  const DiaryEditPage({Key? key}) : super(key: key);
+  const DiaryEditPage({super.key});
 
   @override
   State<DiaryEditPage> createState() => _DiaryEditPageState();
@@ -19,16 +19,32 @@ class _DiaryEditPageState extends State<DiaryEditPage> {
   String? _selectedScene;
   bool _isSaving = false;
 
-  final List<String> _moods = ['好困', '疲惫', '焦虑', '平静', '愉悦', '难过', '压力', '失眠'];
-  final List<String> _scents = ['薰衣草', '甜橙', '玫瑰', '柠檬', '茉莉', '薄荷', '檀香', '雪松'];
-  final List<String> _scenes = ['工作学习', '下班回家', '睡前', '周末放松', '其他'];
+  // ========== 选项常量 ==========
+  static const List<String> _moods = [
+    '好困', '疲惫', '焦虑', '平静', '愉悦', '难过', '压力', '失眠',
+  ];
+  static const List<String> _scents = [
+    '薰衣草', '甜橙', '玫瑰', '柠檬', '茉莉', '薄荷', '檀香', '雪松',
+  ];
+  static const List<String> _scenes = [
+    '工作学习', '下班回家', '睡前', '周末放松', '其他',
+  ];
 
-  @override
-  void initState() {
-    super.initState();
-    // 获取今天的日期作为默认值
-    final now = DateTime.now();
-  }
+  // ========== 样式常量 ==========
+  static const Color _bgColor = Color(0xFFF5F0EB);
+  static const Color _textColor = Color(0xFF2D2D2D);
+  static const Color _greyTextColor = Color(0xFF8C8C8C);
+  static const Color _hintTextColor = Color(0xFFBDBDBD);
+  static const Color _accentGreen = Color(0xFFA8D8B9);
+  static const Color _selectedMoodTextColor = Colors.white;
+  static const Color _unselectedBorderColor = Color(0xFFE0E0E0);
+  static const Color _selectedScentBg = Color(0xFFE8D5B7);
+  static const Color _selectedScentBorder = Color(0xFFE8D5B7);
+  static const Color _selectedSceneBg = Color(0xFFD5E8D4);
+  static const Color _selectedSceneBorder = Color(0xFF82B366);
+  static const double _defaultPadding = 24.0;
+  static const double _chipRadius = 20.0;
+  static const double _cardRadius = 12.0;
 
   @override
   void dispose() {
@@ -45,18 +61,17 @@ class _DiaryEditPageState extends State<DiaryEditPage> {
   /// 保存日记
   Future<void> _saveDiary() async {
     if (_selectedMood == null || _selectedScent == null || _selectedScene == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请填写完整信息'), backgroundColor: Colors.orange),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('请填写完整信息'), backgroundColor: Colors.orange),
+        );
+      }
       return;
     }
 
-    setState(() {
-      _isSaving = true;
-    });
+    setState(() => _isSaving = true);
 
     try {
-      // 创建日记笔记
       final note = ScentDiaryNote(
         mood: _selectedMood!,
         usedScent: _selectedScent!,
@@ -65,299 +80,258 @@ class _DiaryEditPageState extends State<DiaryEditPage> {
         createdAt: DateTime.now().millisecondsSinceEpoch,
       );
 
-      // 保存到数据库
       final result = await _dao.insert(note);
 
+      if (!mounted) return;
+
       if (result > 0) {
-        // 保存成功，返回上一页
-        if (mounted) {
-          Navigator.pop(context, true);
-        }
+        Navigator.pop(context, true);
       } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('保存失败'), backgroundColor: Colors.red),
-          );
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('保存失败'), backgroundColor: Colors.red),
+        );
       }
     } catch (e) {
-      print('保存日记失败: $e');
+      debugPrint('保存日记失败: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('保存失败: $e'), backgroundColor: Colors.red),
         );
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _isSaving = false;
-        });
-      }
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F0EB),
-      appBar: AppBar(
-        title: Text(
-          '写今日心情',
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            color: const Color(0xFF2D2D2D),
-          ),
-        ),
-        backgroundColor: const Color(0xFFF5F0EB),
-        elevation: 0,
-        centerTitle: true,
-        leading: IconButton(
-          icon: const Icon(Icons.close, color: Color(0xFF2D2D2D)),
-          onPressed: () => Navigator.pop(context),
-        ),
-        actions: [
-          TextButton(
-            onPressed: _isSaving ? null : _saveDiary,
-            child: _isSaving
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text(
-                    '保存',
-                    style: TextStyle(
-                      color: Color(0xFFA8D8B9),
-                      fontWeight: FontWeight.w600,
-                      fontSize: 16,
-                    ),
-                  ),
-          ),
-        ],
-      ),
+      backgroundColor: _bgColor,
+      appBar: _buildAppBar(),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(_defaultPadding),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 日期显示
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.calendar_today, size: 20, color: Color(0xFF8C8C8C)),
-                  const SizedBox(width: 12),
-                  Text(
-                    _getTodayDateString(),
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                      color: Color(0xFF2D2D2D),
-                    ),
-                  ),
-                ],
-              ),
+            _buildDateDisplay(),
+            const SizedBox(height: 24),
+            _buildChipGroup(
+              label: '今日心情',
+              items: _moods,
+              selectedItem: _selectedMood,
+              onSelect: (value) => setState(() => _selectedMood = value),
+              selectedBg: _accentGreen,
+              selectedBorder: _accentGreen,
+              selectedTextColor: _selectedMoodTextColor,
             ),
             const SizedBox(height: 24),
-
-            // 心情选择
-            const Text(
-              '今日心情',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: Color(0xFF2D2D2D),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: _moods.map((mood) {
-                final isSelected = _selectedMood == mood;
-                return GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _selectedMood = mood;
-                    });
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: isSelected ? const Color(0xFFA8D8B9) : Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: isSelected ? const Color(0xFFA8D8B9) : const Color(0xFFE0E0E0),
-                      ),
-                    ),
-                    child: Text(
-                      mood,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: isSelected ? Colors.white : const Color(0xFF2D2D2D),
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
+            _buildChipGroup(
+              label: '使用香氛',
+              items: _scents,
+              selectedItem: _selectedScent,
+              onSelect: (value) => setState(() => _selectedScent = value),
+              selectedBg: _selectedScentBg,
+              selectedBorder: _selectedScentBorder,
+              selectedTextColor: _textColor,
             ),
             const SizedBox(height: 24),
-
-            // 使用香氛
-            const Text(
-              '使用香氛',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: Color(0xFF2D2D2D),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: _scents.map((scent) {
-                final isSelected = _selectedScent == scent;
-                return GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _selectedScent = scent;
-                    });
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: isSelected ? const Color(0xFFE8D5B7) : Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: isSelected ? const Color(0xFFE8D5B7) : const Color(0xFFE0E0E0),
-                      ),
-                    ),
-                    child: Text(
-                      scent,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: isSelected ? const Color(0xFF2D2D2D) : const Color(0xFF8C8C8C),
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
+            _buildChipGroup(
+              label: '使用场景',
+              items: _scenes,
+              selectedItem: _selectedScene,
+              onSelect: (value) => setState(() => _selectedScene = value),
+              selectedBg: _selectedSceneBg,
+              selectedBorder: _selectedSceneBorder,
+              selectedTextColor: _textColor,
             ),
             const SizedBox(height: 24),
-
-            // 使用场景
-            const Text(
-              '使用场景',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: Color(0xFF2D2D2D),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: _scenes.map((scene) {
-                final isSelected = _selectedScene == scene;
-                return GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _selectedScene = scene;
-                    });
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: isSelected ? const Color(0xFFD5E8D4) : Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: isSelected ? const Color(0xFF82B366) : const Color(0xFFE0E0E0),
-                      ),
-                    ),
-                    child: Text(
-                      scene,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: isSelected ? const Color(0xFF2D2D2D) : const Color(0xFF8C8C8C),
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 24),
-
-            // 日记内容
-            const Text(
-              '日记内容',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: Color(0xFF2D2D2D),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: TextField(
-                controller: _noteController,
-                maxLines: 6,
-                decoration: const InputDecoration(
-                  hintText: '记录你的心情和感受...',
-                  border: InputBorder.none,
-                  hintStyle: TextStyle(color: Color(0xFFBDBDBD)),
-                ),
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: Color(0xFF2D2D2D),
-                  height: 1.6,
-                ),
-              ),
-            ),
+            _buildNoteField(),
             const SizedBox(height: 32),
+            _buildSaveButton(),
+          ],
+        ),
+      ),
+    );
+  }
 
-            // 保存按钮
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _isSaving ? null : _saveDiary,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFA8D8B9),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+  AppBar _buildAppBar() {
+    return AppBar(
+      title: const Text(
+        '写今日心情',
+        style: TextStyle(fontWeight: FontWeight.w600, color: _textColor),
+      ),
+      backgroundColor: _bgColor,
+      elevation: 0,
+      centerTitle: true,
+      leading: IconButton(
+        icon: const Icon(Icons.close, color: _textColor),
+        onPressed: () => Navigator.pop(context),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _isSaving ? null : _saveDiary,
+          child: _isSaving
+              ? const SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+              : const Text(
+            '保存',
+            style: TextStyle(
+              color: _accentGreen,
+              fontWeight: FontWeight.w600,
+              fontSize: 16,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDateDisplay() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(_cardRadius),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.calendar_today, size: 20, color: _greyTextColor),
+          const SizedBox(width: 12),
+          Text(
+            _getTodayDateString(),
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              color: _textColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 构建通用的选择标签组（心情/香气/场景）
+  Widget _buildChipGroup({
+    required String label,
+    required List<String> items,
+    required String? selectedItem,
+    required void Function(String) onSelect,
+    required Color selectedBg,
+    required Color selectedBorder,
+    required Color selectedTextColor,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: _textColor,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: items.map((item) {
+            final isSelected = selectedItem == item;
+            return GestureDetector(
+              onTap: () => onSelect(item),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: isSelected ? selectedBg : Colors.white,
+                  borderRadius: BorderRadius.circular(_chipRadius),
+                  border: Border.all(
+                    color: isSelected ? selectedBorder : _unselectedBorderColor,
                   ),
                 ),
-                child: _isSaving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      )
-                    : const Text(
-                        '保存日记',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
-                        ),
-                      ),
+                child: Text(
+                  item,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: isSelected ? selectedTextColor : _textColor,
+                  ),
+                ),
               ),
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNoteField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '日记内容',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: _textColor,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(_cardRadius),
+          ),
+          child: TextField(
+            controller: _noteController,
+            maxLines: 6,
+            decoration: const InputDecoration(
+              hintText: '记录你的心情和感受...',
+              border: InputBorder.none,
+              hintStyle: TextStyle(color: _hintTextColor),
             ),
-          ],
+            style: const TextStyle(
+              fontSize: 14,
+              color: _textColor,
+              height: 1.6,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSaveButton() {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton(
+        onPressed: _isSaving ? null : _saveDiary,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: _accentGreen,
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(_cardRadius),
+          ),
+        ),
+        child: _isSaving
+            ? const SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+          ),
+        )
+            : const Text(
+          '保存日记',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: Colors.white,
+          ),
         ),
       ),
     );

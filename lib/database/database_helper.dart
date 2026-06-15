@@ -1,4 +1,4 @@
-import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'app_database.dart';
 
@@ -10,8 +10,10 @@ class DatabaseHelper {
   factory DatabaseHelper() => _instance;
   DatabaseHelper._internal();
 
+  static const String _tableFanScentConfig = 'fan_scent_config';
+
   /// 获取数据库实例（来自 AppDatabase）
-  Future<Database> get database async => AppDatabase().database;
+  Future<Database> get database => AppDatabase().database;
 
   /// 保存风扇气味配置
   Future<void> saveFanConfig(int fanId, String scentName) async {
@@ -20,27 +22,27 @@ class DatabaseHelper {
       final now = DateTime.now().millisecondsSinceEpoch;
 
       final existing = await db.query(
-        'fan_scent_config',
+        _tableFanScentConfig,
         where: 'fan_id = ?',
         whereArgs: [fanId],
       );
 
       if (existing.isNotEmpty) {
         await db.update(
-          'fan_scent_config',
+          _tableFanScentConfig,
           {'scent_name': scentName, 'updated_at': now},
           where: 'fan_id = ?',
           whereArgs: [fanId],
         );
       } else {
-        await db.insert('fan_scent_config', {
+        await db.insert(_tableFanScentConfig, {
           'fan_id': fanId,
           'scent_name': scentName,
           'updated_at': now,
         });
       }
     } catch (e) {
-      print('保存风扇配置失败: $e');
+      debugPrint('保存风扇配置失败: $e');
     }
   }
 
@@ -49,16 +51,15 @@ class DatabaseHelper {
     try {
       final db = await database;
       final result = await db.query(
-        'fan_scent_config',
+        _tableFanScentConfig,
         where: 'fan_id = ?',
         whereArgs: [fanId],
       );
-
       if (result.isNotEmpty) {
         return result.first['scent_name'] as String?;
       }
     } catch (e) {
-      print('获取风扇配置失败: $e');
+      debugPrint('获取风扇配置失败: $e');
     }
     return null;
   }
@@ -67,9 +68,9 @@ class DatabaseHelper {
   Future<List<Map<String, dynamic>>> getAllFanConfigs() async {
     try {
       final db = await database;
-      return await db.query('fan_scent_config', orderBy: 'fan_id ASC');
+      return await db.query(_tableFanScentConfig, orderBy: 'fan_id ASC');
     } catch (e) {
-      print('获取所有风扇配置失败: $e');
+      debugPrint('获取所有风扇配置失败: $e');
       return [];
     }
   }

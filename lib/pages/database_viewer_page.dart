@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../database/app_database.dart';
 
@@ -15,6 +16,18 @@ class _DatabaseViewerPageState extends State<DatabaseViewerPage> {
   List<Map<String, dynamic>> _data = [];
   bool _isLoading = false;
   String? _errorMessage;
+
+  // ========== 样式常量 ==========
+  static const double _defaultPadding = 16.0;
+  static const double _dropdownRadius = 8.0;
+  static const Color _backgroundColor = Colors.white;
+  static const Color _textPrimary = Colors.black;
+  static const Color _textSecondary = Colors.grey;
+  static const Color _errorBackground = Color(0xFFFFF0F0);
+  static const Color _errorBorder = Color(0xFFFFCDD2);
+  static const Color _errorText = Color(0xFFD32F2F);
+  static const Color _tableBorder = Color(0xFFE0E0E0);
+  static const Color _recordCountColor = Color(0xFF757575);
 
   @override
   void initState() {
@@ -34,12 +47,13 @@ class _DatabaseViewerPageState extends State<DatabaseViewerPage> {
       setState(() {
         _tables = tables;
         _isLoading = false;
-        if (tables.isNotEmpty) {
+        if (tables.isNotEmpty && _selectedTable == null) {
           _selectedTable = tables.first;
           _loadData();
         }
       });
     } catch (e) {
+      debugPrint('加载表列表失败: $e');
       setState(() {
         _tables = [];
         _isLoading = false;
@@ -64,6 +78,7 @@ class _DatabaseViewerPageState extends State<DatabaseViewerPage> {
         _isLoading = false;
       });
     } catch (e) {
+      debugPrint('查询表 $_selectedTable 失败: $e');
       setState(() {
         _data = [];
         _isLoading = false;
@@ -75,103 +90,109 @@ class _DatabaseViewerPageState extends State<DatabaseViewerPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('数据库调试'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
-        actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadTables),
-        ],
-      ),
-      backgroundColor: Colors.white,
+      appBar: _buildAppBar(),
+      backgroundColor: _backgroundColor,
       body: Column(
         children: [
-          // 表选择下拉框
-          Container(
-            margin: const EdgeInsets.all(16),
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey.shade300),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: _selectedTable,
-                isExpanded: true,
-                hint: const Text('选择表'),
-                items: _tables.map((table) {
-                  return DropdownMenuItem<String>(
-                    value: table,
-                    child: Text(table),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() {
-                      _selectedTable = value;
-                    });
-                    _loadData();
-                  }
-                },
-              ),
-            ),
-          ),
-
-          // 记录数显示
-          if (_selectedTable != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  '共 ${_data.length} 条记录',
-                  style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
-                ),
-              ),
-            ),
-
+          _buildTableSelector(),
+          if (_selectedTable != null) _buildRecordCount(),
           const SizedBox(height: 8),
-
-          // 错误提示
-          if (_errorMessage != null)
-            Container(
-              margin: const EdgeInsets.all(16),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.red.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.red.shade200),
-              ),
-              child: Text(
-                _errorMessage!,
-                style: TextStyle(color: Colors.red.shade700),
-              ),
-            ),
-
-          // 加载中
+          if (_errorMessage != null) _buildErrorMessage(),
           if (_isLoading)
             const Expanded(child: Center(child: CircularProgressIndicator())),
-
-          // 数据表格
-          if (!_isLoading && _selectedTable != null)
-            Expanded(
-              child: _data.isEmpty
-                  ? Center(
-                      child: Text(
-                        '暂无数据',
-                        style: TextStyle(color: Colors.grey.shade400),
-                      ),
-                    )
-                  : SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.all(16),
-                        child: _buildDataTable(),
-                      ),
-                    ),
-            ),
+          if (!_isLoading && _selectedTable != null) _buildDataArea(),
         ],
+      ),
+    );
+  }
+
+  AppBar _buildAppBar() {
+    return AppBar(
+      title: const Text('数据库调试'),
+      backgroundColor: _backgroundColor,
+      foregroundColor: _textPrimary,
+      elevation: 0,
+      actions: [
+        IconButton(icon: const Icon(Icons.refresh), onPressed: _loadTables),
+      ],
+    );
+  }
+
+  Widget _buildTableSelector() {
+    return Container(
+      margin: const EdgeInsets.all(_defaultPadding),
+      padding: const EdgeInsets.symmetric(horizontal: _defaultPadding),
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.shade300),
+        borderRadius: BorderRadius.circular(_dropdownRadius),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _selectedTable,
+          isExpanded: true,
+          hint: const Text('选择表'),
+          items: _tables
+              .map((table) => DropdownMenuItem(value: table, child: Text(table)))
+              .toList(),
+          onChanged: (value) {
+            if (value != null) {
+              setState(() => _selectedTable = value);
+              _loadData();
+            }
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRecordCount() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: _defaultPadding),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          '共 ${_data.length} 条记录',
+          style: const TextStyle(color: _recordCountColor, fontSize: 14),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildErrorMessage() {
+    return Container(
+      margin: const EdgeInsets.all(_defaultPadding),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _errorBackground,
+        borderRadius: BorderRadius.circular(_dropdownRadius),
+        border: Border.all(color: _errorBorder),
+      ),
+      child: Text(
+        _errorMessage!,
+        style: const TextStyle(color: _errorText),
+      ),
+    );
+  }
+
+  Widget _buildDataArea() {
+    if (_data.isEmpty) {
+      return Expanded(
+        child: Center(
+          child: Text(
+            '暂无数据',
+            style: TextStyle(color: Colors.grey.shade400),
+          ),
+        ),
+      );
+    }
+
+    return Expanded(
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(_defaultPadding),
+          child: _buildDataTable(),
+        ),
       ),
     );
   }
@@ -180,16 +201,15 @@ class _DatabaseViewerPageState extends State<DatabaseViewerPage> {
   Widget _buildDataTable() {
     if (_data.isEmpty) return const SizedBox.shrink();
 
-    // 获取所有列名
     final columns = _data.first.keys.toList();
 
     return DataTable(
-      border: TableBorder.all(color: Colors.grey.shade300),
-      columns: columns.map((col) {
-        return DataColumn(
-          label: Text(col, style: const TextStyle(fontWeight: FontWeight.bold)),
-        );
-      }).toList(),
+      border: TableBorder.all(color: _tableBorder),
+      columns: columns
+          .map((col) => DataColumn(
+        label: Text(col, style: const TextStyle(fontWeight: FontWeight.bold)),
+      ))
+          .toList(),
       rows: _data.map((row) {
         return DataRow(
           cells: columns.map((col) {

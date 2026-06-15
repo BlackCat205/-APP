@@ -1,17 +1,58 @@
-# my_perfume_app
+# 智能气味情绪调节器 
 
-A new Flutter project.
+这是一款配合 **ESP32 智能气味调节器硬件** 的跨平台 Flutter App。它通过蓝牙连接设备，可视化控制 4 路香薰风扇，并融合了情绪识别、气味记忆、智能关怀等人性化功能。
 
-## Getting Started
+---
 
-This project is a starting point for a Flutter application.
+## 主要功能
 
-A few resources to get you started if this is your first Flutter project:
+- **蓝牙设备连接**  
+  扫描并连接 ESP32 香薰主机，支持一键配对与状态显示。
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+- **四通道独立控制**  
+  可单独开启/关闭 1~4 号风扇，调节香气配方，支持定时关闭。
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- **情绪香薰推荐**  
+  通过 AI 大模型（豆包/讯飞星火）分析用户输入的情绪状态，推荐对应香氛与场景；离线时自动切换本地映射。
+
+- **气味瞬间 & 日记**  
+  自动记录每次香薰使用，生成气味瞬间卡片，支持评分与文字笔记，也可手动写心情日记。
+
+- **情绪周报 & 智能关怀**  
+  基于一周的使用和心情数据，生成情绪曲线与智能结论，并在适当时候推送关怀提醒。
+
+- **多主题 & 系统设置**  
+  支持浅色/深色/跟随系统主题，以及通知开关、缓存清理、登录鉴权等。
+
+---
+
+## 技术栈
+
+| 分类 | 方案                        |
+|------|---------------------------|
+| 框架 | Flutter 3.x / Dart 3      |
+| 状态管理 | Provider                  |
+| 本地数据库 | Hive、sqflite（SQLite）      |
+| 蓝牙通信 | flutter\_blue\_plus       |
+| 网络请求 | http (用讯飞 API)            |
+| 语音识别 | speech\_to\_text  （暂时没用上） |
+| 桌面端支持 | sqflite\_common\_ffi      |
+
+---
+
+## 快速开始
+
+1. **克隆仓库**
+   ```bash
+   git clone <  >
+   cd perfume_app
+2. **安装依赖**
+
+   ```bash
+   flutter pub get
+   
+3. **运行应用**
+```bash
+   flutter run
+   
+  

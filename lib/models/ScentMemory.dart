@@ -2,6 +2,7 @@ import 'package:hive/hive.dart';
 
 part 'ScentMemory.g.dart';
 
+/// 气味记忆模型，使用 Hive 存储
 @HiveType(typeId: 0)
 class ScentMemory {
   @HiveField(0)
@@ -19,7 +20,7 @@ class ScentMemory {
   @HiveField(4)
   final DateTime timestamp;
 
-  ScentMemory({
+  const ScentMemory({
     required this.id,
     required this.userInput,
     required this.emotion,
