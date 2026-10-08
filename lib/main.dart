@@ -13,6 +13,16 @@ import 'providers/device_provider.dart';
 import 'providers/user_provider.dart';
 import 'services/care_service.dart';
 import 'services/fan_scent_service.dart';
+import 'services/smell_moment_repository.dart';
+import 'database/app_database.dart';
+import 'services/usage_session_service.dart';
+import 'services/bluetooth_service.dart';
+import 'services/recommendation_service.dart';
+import 'providers/recommendation_provider.dart';
+import 'services/usage_record_service.dart';
+import 'services/ai_api_config.dart';
+import 'services/ai_preference_service.dart';
+import 'services/scent_catalog.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,12 +35,60 @@ void main() async {
 
   await Hive.initFlutter();
   await FanScentService.init();
+  final prefs = await SharedPreferences.getInstance();
+  await SmellMomentRepository(
+    await AppDatabase().database,
+  ).importLegacy(prefs.getStringList('smell_memories') ?? []);
+
+  final sessions = UsageSessionService(
+    db: await AppDatabase().database,
+    send: BluetoothService.sendPlainCommand,
+    connected: () => BluetoothService.isConnected,
+    scentForFan: FanScentService.getFanScent,
+  );
+  await sessions.initialize();
+  BluetoothService.connection.addListener(() {
+    if (!BluetoothService.isConnected) {
+      sessions
+          .interrupt('蓝牙已断开，设备运行状态不确定；请重新连接后关闭')
+          .catchError((Object e) => debugPrint('保存中断状态失败: $e'));
+    }
+  });
 
   runApp(
     MultiProvider(
       providers: [
+        ChangeNotifierProvider.value(value: sessions),
         ChangeNotifierProvider(create: (_) => UserProvider()),
         ChangeNotifierProvider(create: (_) => DeviceProvider()),
+        ChangeNotifierProvider(
+          create: (context) {
+            final users = context.read<UserProvider>();
+            final preference = AiPreferenceService(
+              db: sessions.db,
+              client: SparkPreferenceClient(
+                apiPassword: AiApiConfig.apiPassword,
+                modelName: AiApiConfig.modelName,
+                baseUrl: AiApiConfig.baseUrl,
+              ),
+              candidates: () =>
+                  ScentCatalog.candidates(FanScentService.getAllConfig()),
+            );
+            return RecommendationProvider(
+              source: RecommendationService(
+                db: sessions.db,
+                configuration: FanScentService.getAllConfig,
+              ),
+              usageChanges: sessions,
+              usageBusy: () => sessions.busy,
+              userChanges: users,
+              userId: () => users.currentUser?.id ?? 'local',
+              configChanges: FanScentService.revision,
+              additionalChanges: [UsageRecordService.revision],
+              updatePreference: preference.updateIfPending,
+            );
+          },
+        ),
       ],
       child: const MyApp(),
     ),
@@ -47,6 +105,7 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   String _themeMode = 'system';
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
 
   // ========== 常量 ==========
   static const String _appTitle = '香氛App';
@@ -93,15 +152,20 @@ class _MyAppState extends State<MyApp> {
   // ---------- 关怀弹窗 ----------
 
   void _showCareDialog(Map<String, dynamic> care) {
+    final navigator = _navigatorKey.currentState;
+    if (navigator == null) return;
     showDialog(
-      context: context,
+      context: navigator.context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: _careBg,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         title: const Center(
           child: Text(
             '💛 来自气味的关怀',
-            style: TextStyle(fontWeight: FontWeight.w600, color: _careTitleColor),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: _careTitleColor,
+            ),
           ),
         ),
         content: Text(
@@ -117,11 +181,13 @@ class _MyAppState extends State<MyApp> {
           ElevatedButton(
             onPressed: () {
               Navigator.pop(dialogContext);
-              Navigator.pushReplacementNamed(context, '/');
+              navigator.pushReplacementNamed('/');
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: _careButtonGreen,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
             child: const Text(
               '🌿 开始对应场景疗愈',
@@ -149,6 +215,7 @@ class _MyAppState extends State<MyApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: _navigatorKey,
       title: _appTitle,
       theme: ThemeData(primarySwatch: Colors.red, fontFamily: _fontFamily),
       darkTheme: ThemeData(

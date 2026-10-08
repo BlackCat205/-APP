@@ -10,6 +10,9 @@ class UsageRecord {
   final int fanId;
   final String? scentName;
   final int createdAt;
+  final String? sessionId;
+  final String source;
+  final String status;
 
   const UsageRecord({
     this.id,
@@ -19,6 +22,9 @@ class UsageRecord {
     required this.fanId,
     this.scentName,
     required this.createdAt,
+    this.sessionId,
+    this.source = 'legacy_unknown',
+    this.status = 'legacy_unknown',
   });
 
   /// 从数据库 Map 构造
@@ -31,6 +37,9 @@ class UsageRecord {
       fanId: map['fan_id'] as int,
       scentName: map['scent_name'] as String?,
       createdAt: map['created_at'] as int,
+      sessionId: map['session_id'] as String?,
+      source: map['source'] as String? ?? 'legacy_unknown',
+      status: map['status'] as String? ?? 'legacy_unknown',
     );
   }
 
@@ -43,6 +52,9 @@ class UsageRecord {
     'fan_id': fanId,
     'scent_name': scentName,
     'created_at': createdAt,
+    'session_id': sessionId,
+    'source': source,
+    'status': status,
   };
 
   /// 创建修改后的副本
@@ -54,6 +66,9 @@ class UsageRecord {
     int? fanId,
     String? scentName,
     int? createdAt,
+    String? sessionId,
+    String? source,
+    String? status,
   }) {
     return UsageRecord(
       id: id ?? this.id,
@@ -63,6 +78,9 @@ class UsageRecord {
       fanId: fanId ?? this.fanId,
       scentName: scentName ?? this.scentName,
       createdAt: createdAt ?? this.createdAt,
+      sessionId: sessionId ?? this.sessionId,
+      source: source ?? this.source,
+      status: status ?? this.status,
     );
   }
 }

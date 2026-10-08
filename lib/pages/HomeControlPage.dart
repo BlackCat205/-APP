@@ -1,14 +1,16 @@
 import 'dart:io';
+import '../widgets/today_recommendation_card.dart';
+import '../models/recommendation.dart';
+import '../providers/recommendation_provider.dart';
+import 'package:provider/provider.dart';
+import '../services/usage_session_service.dart';
+import '../services/fan_scent_service.dart';
+import 'usage_feedback_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart' as fb;
 import 'package:permission_handler/permission_handler.dart';
 import '../services/bluetooth_service.dart';
-import '../services/fan_scent_service.dart';
 import '../services/usage_record_service.dart';
-import '../database/database_helper.dart';
-import '../database/app_database.dart';
-import '../models/usage_record.dart';
-import 'smell_memory/smell_save_popup.dart';
 import 'fan_timer_page.dart';
 import 'fan_scent_config_page.dart';
 
@@ -24,7 +26,12 @@ class _HomeControlPageState extends State<HomeControlPage> {
   bool _isBluetoothConnected = false;
   String _connectionStatus = '未连接';
 
-  // 风扇开关本地 UI 状态（乐观更新）
+  late final UsageSessionService _sessions;
+  bool _commandBusy = false;
+  final Set<String> _presented = {};
+  String? _lastError;
+
+  // UI 仅展示服务确认写入后的状态。
   final List<bool> _fanStates = [false, false, false, false];
 
   // ========== 样式常量 ==========
@@ -43,7 +50,64 @@ class _HomeControlPageState extends State<HomeControlPage> {
   @override
   void initState() {
     super.initState();
+    _sessions = context.read<UsageSessionService>();
+    if (_sessions.lastFinished != null) _presented.add(_sessions.lastFinished!);
+    _sessions.addListener(_syncSession);
+    BluetoothService.connection.addListener(_syncSession);
+    _isBluetoothConnected = BluetoothService.isConnected;
+    _connectionStatus = _isBluetoothConnected ? '已连接' : '未连接';
+    for (var i = 0; i < 4; i++) {
+      _fanStates[i] = _sessions.activeFans.contains(i + 1);
+    }
     _requestPermissions();
+  }
+
+  @override
+  void dispose() {
+    _sessions.removeListener(_syncSession);
+    BluetoothService.connection.removeListener(_syncSession);
+    super.dispose();
+  }
+
+  void _syncSession() {
+    if (!mounted) return;
+    setState(() {
+      _isBluetoothConnected = BluetoothService.isConnected;
+      _connectionStatus = _isBluetoothConnected ? '已连接' : '未连接';
+      for (var i = 0; i < 4; i++) {
+        _fanStates[i] = _sessions.activeFans.contains(i + 1);
+      }
+    });
+    final finished = _sessions.lastFinished;
+    if (!_sessions.busy && finished != null && _presented.add(finished)) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _showFeedback(finished),
+      );
+    }
+    if (_sessions.lastError != null && _sessions.lastError != _lastError) {
+      _lastError = _sessions.lastError;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showSnackBar(_lastError!);
+      });
+    }
+  }
+
+  Future<void> _showFeedback(String id) async {
+    if (!mounted) return;
+    final user = feedbackUserId(context);
+    try {
+      final detail = await _sessions.feedbackDetail(id, user);
+      if (detail['feedback_id'] != null) return;
+      if (!mounted || feedbackUserId(context) != user) return;
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => UsageFeedbackPage(sessionId: id, userId: user),
+        ),
+      );
+    } catch (_) {
+      /* 其他用户的会话不弹出；可从对应用户的反馈历史进入。 */
+    }
   }
 
   // ---------- 权限 ----------
@@ -53,7 +117,9 @@ class _HomeControlPageState extends State<HomeControlPage> {
       return;
     }
     final scanGranted = await Permission.bluetoothScan.request().isGranted;
-    final connectGranted = await Permission.bluetoothConnect.request().isGranted;
+    final connectGranted = await Permission.bluetoothConnect
+        .request()
+        .isGranted;
     final locationGranted = await Permission.location.request().isGranted;
     if (scanGranted && connectGranted && locationGranted) {
       debugPrint('蓝牙权限已授予');
@@ -109,24 +175,30 @@ class _HomeControlPageState extends State<HomeControlPage> {
   }
 
   Future<void> _onDeviceSelected(
-      BuildContext dialogContext,
-      fb.BluetoothDevice device,
-      ) async {
+    BuildContext dialogContext,
+    fb.BluetoothDevice device,
+  ) async {
     Navigator.pop(dialogContext);
-    final success = await BluetoothService.connectToDeviceByDevice(device);
+    bool success;
+    try {
+      success = await BluetoothService.connectToDeviceByDevice(device);
+    } catch (e) {
+      if (mounted) _showSnackBar('连接失败: $e');
+      return;
+    }
+    if (!mounted) return;
     setState(() {
       _isBluetoothConnected = success;
       _connectionStatus = success ? '已连接' : '连接失败';
     });
     _showSnackBar(success ? '连接成功' : '连接失败');
-    if (success) await _checkAllFansOff();
   }
 
   // ---------- 风扇控制指令 ----------
   Future<void> _sendCommand(
-      Future<void> Function() command,
-      String successMsg,
-      ) async {
+    Future<void> Function() command,
+    String successMsg,
+  ) async {
     if (!_isBluetoothConnected) {
       _showSnackBar('请先连接蓝牙设备');
       return;
@@ -140,175 +212,131 @@ class _HomeControlPageState extends State<HomeControlPage> {
   }
 
   void _toggleFan(int index, bool value) async {
-    final fanId = index + 1;
-    // 根据 on/off 分发指令和记录
-    if (value) {
-      await _sendCommand(_fanOnCommand(index), '风扇$fanId 已开启');
-      if (_isBluetoothConnected) await UsageRecordService.startRecord(fanId);
-    } else {
-      await _sendCommand(_fanOffCommand(index), '风扇$fanId 已关闭');
-      if (_isBluetoothConnected) await UsageRecordService.endRecord(fanId);
+    if (_commandBusy || _sessions.busy) return;
+    if (!BluetoothService.isConnected) {
+      _showSnackBar('请先连接蓝牙设备');
+      return;
     }
-    setState(() => _fanStates[index] = value);
-    await _checkAllFansOff();
+    setState(() => _commandBusy = true);
+    try {
+      if (value) {
+        final user = feedbackUserId(context);
+        BeforeUseInput? input;
+        if (!_sessions.hasActiveSession) {
+          input = await askBeforeUse(context);
+          if (input == null || !mounted) return;
+        }
+        if (!mounted || feedbackUserId(context) != user) return;
+        await _sessions.startFan(
+          index + 1,
+          userId: user,
+          beforeState: input?.state,
+          scene: input?.scene,
+        );
+      } else {
+        await _sessions.stopFan(index + 1);
+      }
+      if (mounted) _showSnackBar('指令已发送');
+    } catch (e) {
+      if (mounted) _showSnackBar('操作未完成: $e');
+    } finally {
+      if (mounted) setState(() => _commandBusy = false);
+    }
   }
 
-  Future<void> Function() _fanOnCommand(int index) {
-    switch (index) {
-      case 0: return BluetoothService.fan1On;
-      case 1: return BluetoothService.fan2On;
-      case 2: return BluetoothService.fan3On;
-      case 3: return BluetoothService.fan4On;
-      default: return () async {};
+  Future<void> _startRecommendation(Recommendation recommendation) async {
+    if (_commandBusy || _sessions.busy) return;
+    if (_sessions.hasActiveSession) {
+      _showSnackBar('请先结束当前使用');
+      return;
+    }
+    if (!BluetoothService.isConnected) {
+      _showSnackBar('请先连接蓝牙设备');
+      return;
+    }
+    final current = FanScentService.getAllConfig();
+    final stillMounted = recommendation.candidate.fans.entries.every(
+      (entry) => current[entry.key] == entry.value,
+    );
+    if (!stillMounted) {
+      _showSnackBar('气味配置已经变化，正在更新推荐');
+      await context.read<RecommendationProvider>().refresh(clear: true);
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('确认使用推荐组合'),
+        content: Text('将开启：${recommendation.candidate.name}'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('继续'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final user = feedbackUserId(context);
+    final input = await askBeforeUse(context);
+    if (input == null || !mounted || feedbackUserId(context) != user) return;
+    final confirmedConfig = FanScentService.getAllConfig();
+    if (!recommendation.candidate.fans.entries.every(
+      (entry) => confirmedConfig[entry.key] == entry.value,
+    )) {
+      _showSnackBar('气味配置已经变化，请重新选择推荐');
+      await context.read<RecommendationProvider>().refresh(clear: true);
+      return;
+    }
+    setState(() => _commandBusy = true);
+    try {
+      await _sessions.startCombination(
+        recommendation.candidate.fans.keys,
+        userId: user,
+        beforeState: input.state,
+        scene: input.scene,
+      );
+      if (mounted) _showSnackBar('推荐组合已启动');
+    } catch (e) {
+      if (mounted) _showSnackBar('组合未完整启动: $e');
+    } finally {
+      if (mounted) setState(() => _commandBusy = false);
     }
   }
 
-  Future<void> Function() _fanOffCommand(int index) {
-    switch (index) {
-      case 0: return BluetoothService.fan1Off;
-      case 1: return BluetoothService.fan2Off;
-      case 2: return BluetoothService.fan3Off;
-      case 3: return BluetoothService.fan4Off;
-      default: return () async {};
-    }
-  }
-
-  // ---------- 定时页面 ----------
-  void _openTimerPage(int fanIndex) async {
-    final result = await Navigator.push(
+  void _openTimerPage(int fanIndex) {
+    Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => FanTimerPage(fanIndex: fanIndex)),
     );
-    if (result is int && result > 0) {
-      Future.delayed(Duration(milliseconds: result), () {
-        if (mounted) setState(() => _fanStates[fanIndex] = false);
-      });
-    }
   }
 
-  // ---------- 气味保存弹窗 ----------
-  Future<void> _checkAllFansOff() async {
-    if (!_isBluetoothConnected || _fanStates.any((s) => s)) return;
-
-    final lastMomentTimestamp =
-    await SmellMomentRecordService.getLastMomentRecordTimestamp();
-    final allTodayRecords = await UsageRecordService.getTodayRecords();
-    final validRecords = allTodayRecords
-        .where((r) => r.createdAt > lastMomentTimestamp && (r.duration ?? 0) > 60)
-        .toList();
-
-    debugPrint('本次使用判定：上次弹窗时间=$lastMomentTimestamp, 找到${validRecords.length}条有效记录');
-
-    if (validRecords.isNotEmpty) {
-      _showSmellSavePopup(validRecords);
-    }
-  }
-
-  void _showSmellSavePopup(List<UsageRecord> records) async {
-    await CardTriggerRecordService.insertRecord();
-
-    final scentMap = <int, String>{};
-    for (final r in records) {
-      if (r.scentName != null && r.scentName!.isNotEmpty) {
-        scentMap.putIfAbsent(r.fanId, () => r.scentName!);
-      }
-    }
-    final scents = scentMap.values.toList();
-
-    int totalSeconds = records.fold(0, (sum, r) => sum + (r.duration ?? 0));
-    final hours = totalSeconds ~/ 3600;
-    final minutes = (totalSeconds % 3600) ~/ 60;
-    final secs = totalSeconds % 60;
-    final durationStr = hours > 0
-        ? '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}'
-        : '${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
-
-    final recordIds = records.where((r) => r.id != null).map((r) => r.id!).toList();
-
-    if (!mounted) return;
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => SmellSavePopup(
-        recipeList: scents,
-        duration: durationStr,
-        recordIds: recordIds,
-      ),
-    );
-  }
-
-  // ---------- 测试方法（保持全部逻辑） ----------
+  // ---------- 推荐数据模拟 ----------
   Future<void> _testTrigger() async {
-    final dbHelper = DatabaseHelper();
-    final configs = await dbHelper.getAllFanConfigs();
-    final scentMap = <int, String>{};
-    for (final c in configs) {
-      final fanId = c['fan_id'] as int;
-      final scentName = c['scent_name'] as String?;
-      if (scentName != null && scentName.isNotEmpty) scentMap[fanId] = scentName;
+    if (_sessions.hasActiveSession ||
+        _sessions.busy ||
+        UsageRecordService.hasActiveRecord()) {
+      _showSnackBar('请先结束当前使用，再运行模拟测试');
+      return;
     }
-
-    debugPrint('测试：当前气味配置');
-    scentMap.forEach((fanId, scent) => debugPrint('  - 风扇$fanId: $scent'));
-
-    for (final fanId in _testActiveFans) {
-      await UsageRecordService.startRecord(fanId);
-    }
-
-    debugPrint('测试：开始模拟使用...');
-    await Future.delayed(const Duration(seconds: 2));
-
-    debugPrint('测试：关闭所有风扇');
-    for (final fanId in _testActiveFans) {
-      await UsageRecordService.endRecord(fanId);
-    }
-
-    debugPrint('测试：模拟使用时长超过 60 秒');
-    final db = await AppDatabase().database;
-    for (final fanId in _testActiveFans) {
-      final records = await db.query(
-        'usage_records',
-        where: 'fan_id = ? AND end_time IS NOT NULL',
-        whereArgs: [fanId],
-        orderBy: 'end_time DESC',
-        limit: 1,
+    final user = feedbackUserId(context);
+    final input = await askBeforeUse(context);
+    if (input == null || !mounted || feedbackUserId(context) != user) return;
+    try {
+      await _sessions.createRecommendationSimulation(
+        _testActiveFans,
+        userId: user,
+        durationSeconds: _testSimulatedDuration,
+        beforeState: input.state,
+        scene: input.scene ?? '推荐评分测试',
       );
-      if (records.isNotEmpty) {
-        final recordId = records.first['id'] as int;
-        await db.update(
-          'usage_records',
-          {'duration': _testSimulatedDuration},
-          where: 'id = ?',
-          whereArgs: [recordId],
-        );
-      }
-    }
-
-    final now = DateTime.now();
-    final startOfDay = DateTime(now.year, now.month, now.day).millisecondsSinceEpoch;
-    final endOfDay = startOfDay + const Duration(days: 1).inMilliseconds;
-
-    final validRecords = <UsageRecord>[];
-    for (final fanId in _testActiveFans) {
-      final records = await db.query(
-        'usage_records',
-        where: 'fan_id = ? AND start_time >= ? AND start_time < ? AND end_time IS NOT NULL AND duration > 60',
-        whereArgs: [fanId, startOfDay, endOfDay],
-        orderBy: 'start_time DESC',
-        limit: 1,
-      );
-      if (records.isNotEmpty) validRecords.add(UsageRecord.fromMap(records.first));
-    }
-
-    debugPrint('测试：找到${validRecords.length}条有效记录');
-    for (final r in validRecords) {
-      debugPrint('  - 风扇${r.fanId}: ${r.scentName}, 时长${r.duration}秒');
-    }
-
-    if (validRecords.isNotEmpty) {
-      _showSmellSavePopup(validRecords);
-    } else {
-      _showSnackBar('测试失败：没有符合条件的记录');
+      if (mounted) _showSnackBar('已生成 65 秒模拟使用，请填写反馈');
+    } catch (e) {
+      if (mounted) _showSnackBar('生成模拟记录失败: $e');
     }
   }
 
@@ -324,11 +352,16 @@ class _HomeControlPageState extends State<HomeControlPage> {
         backgroundColor: const Color(0xFFF5E6D3),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         title: const Center(
-          child: Text('💛 来自气味的关怀',
-              style: TextStyle(fontWeight: FontWeight.w600, color: _textColor)),
+          child: Text(
+            '💛 来自气味的关怀',
+            style: TextStyle(fontWeight: FontWeight.w600, color: _textColor),
+          ),
         ),
-        content: Text(careData['message']!,
-            style: const TextStyle(fontSize: 16, color: _textColor), textAlign: TextAlign.center),
+        content: Text(
+          careData['message']!,
+          style: const TextStyle(fontSize: 16, color: _textColor),
+          textAlign: TextAlign.center,
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
@@ -349,10 +382,15 @@ class _HomeControlPageState extends State<HomeControlPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            TodayRecommendationCard(onStart: _startRecommendation),
+            const SizedBox(height: 16),
             _buildConnectionBar(),
             const SizedBox(height: 24),
-            const Text('风扇控制',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const Text('开关显示 APP 最近发送的状态；断连后设备实际状态未知。'),
+            const Text(
+              '风扇控制',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 16),
             _buildFanCard(),
             const SizedBox(height: 24),
@@ -364,10 +402,12 @@ class _HomeControlPageState extends State<HomeControlPage> {
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const FanScentConfigPage()),
-        ),
+        onPressed: _sessions.hasActiveSession || _sessions.busy
+            ? null
+            : () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const FanScentConfigPage()),
+              ),
         backgroundColor: _accentGreen,
         child: const Icon(Icons.eco, color: Colors.white),
       ),
@@ -378,7 +418,9 @@ class _HomeControlPageState extends State<HomeControlPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
-        color: _isBluetoothConnected ? _connectionBgConnected : _connectionBgDisconnected,
+        color: _isBluetoothConnected
+            ? _connectionBgConnected
+            : _connectionBgDisconnected,
         borderRadius: BorderRadius.circular(_defaultRadius),
       ),
       child: Row(
@@ -397,7 +439,9 @@ class _HomeControlPageState extends State<HomeControlPage> {
             ],
           ),
           ElevatedButton(
-            onPressed: _connectBluetooth,
+            onPressed: _sessions.hasActiveSession || _sessions.busy
+                ? null
+                : _connectBluetooth,
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
               foregroundColor: Colors.white,
@@ -412,12 +456,14 @@ class _HomeControlPageState extends State<HomeControlPage> {
   Widget _buildFanCard() {
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(_cardRadius)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(_cardRadius),
+      ),
       child: Column(
-        children: List.generate(4, (i) => [
-          _buildFanTile(i),
-          if (i < 3) const Divider(height: 1),
-        ]).expand((e) => e).toList(),
+        children: List.generate(
+          4,
+          (i) => [_buildFanTile(i), if (i < 3) const Divider(height: 1)],
+        ).expand((e) => e).toList(),
       ),
     );
   }
@@ -427,11 +473,15 @@ class _HomeControlPageState extends State<HomeControlPage> {
     return Column(
       children: [
         SwitchListTile(
-          title: Text('风扇 ${index + 1}',
-              style: const TextStyle(fontWeight: FontWeight.w500)),
+          title: Text(
+            '风扇 ${index + 1}',
+            style: const TextStyle(fontWeight: FontWeight.w500),
+          ),
           secondary: const Icon(Icons.toys, color: Colors.blue),
           value: isOn,
-          onChanged: (v) => _toggleFan(index, v),
+          onChanged: _commandBusy || _sessions.busy
+              ? null
+              : (v) => _toggleFan(index, v),
           activeThumbColor: Colors.green,
           inactiveThumbColor: Colors.grey,
         ),
@@ -441,12 +491,15 @@ class _HomeControlPageState extends State<HomeControlPage> {
             child: Align(
               alignment: Alignment.centerLeft,
               child: TextButton.icon(
-                onPressed: () => _openTimerPage(index),
+                onPressed: _sessions.busy ? null : () => _openTimerPage(index),
                 icon: const Icon(Icons.timer, size: 18),
                 label: const Text('定时关闭'),
                 style: TextButton.styleFrom(
                   foregroundColor: _accentGreen,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(_defaultRadius),
                     side: const BorderSide(color: _accentGreen),
@@ -464,7 +517,7 @@ class _HomeControlPageState extends State<HomeControlPage> {
       children: [
         Expanded(
           child: _buildLabeledButton(
-            onPressed: () => _sendCommand(BluetoothService.allOff, '所有风扇已关闭'),
+            onPressed: () => _sendCommand(_sessions.stopAll, '全部关闭指令已发送'),
             icon: Icons.stop_circle,
             label: '关闭所有风扇',
             color: Colors.orange,
@@ -473,7 +526,7 @@ class _HomeControlPageState extends State<HomeControlPage> {
         const SizedBox(width: 16),
         Expanded(
           child: _buildLabeledButton(
-            onPressed: () => _sendCommand(BluetoothService.emergencyStop, '紧急停止'),
+            onPressed: () => _sendCommand(_sessions.stopAll, '紧急停止指令已发送'),
             icon: Icons.power_settings_new,
             label: '紧急停止',
             color: Colors.red,
@@ -527,7 +580,9 @@ class _HomeControlPageState extends State<HomeControlPage> {
 
   void _showSnackBar(String message) {
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
     }
   }
 }

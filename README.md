@@ -35,7 +35,6 @@
 | 本地数据库 | Hive、sqflite（SQLite）      |
 | 蓝牙通信 | flutter\_blue\_plus       |
 | 网络请求 | http (用讯飞 API)            |
-| 语音识别 | speech\_to\_text  （暂时没用上） |
 | 桌面端支持 | sqflite\_common\_ffi      |
 
 ---

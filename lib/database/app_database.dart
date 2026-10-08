@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
+import 'recommendation_schema.dart';
 
 /// 统一的数据库管理类 - 单例模式
 /// 合并 scent_memory.db、usage_records.db、scent_db.db 为 scent_app.db
@@ -8,13 +9,14 @@ class AppDatabase {
   // ---------- 单例实现 ----------
   static final AppDatabase _instance = AppDatabase._internal();
   static Database? _database;
+  static Future<Database>? _opening;
 
   factory AppDatabase() => _instance;
   AppDatabase._internal();
 
   // ---------- 常量 ----------
   static const String _dbName = 'scent_app.db';
-  static const int _dbVersion = 9;
+  static const int _dbVersion = 11;
 
   static const String _tableScentDiaryNote = 'scent_diary_note';
   static const String _tableUsageRecords = 'usage_records';
@@ -33,19 +35,29 @@ class AppDatabase {
   // ---------- 数据库访问 ----------
   Future<Database> get database async {
     if (_database != null) return _database!;
-    _database = await _initDatabase();
-    return _database!;
+    final opening = _opening ??= _initDatabase();
+    try {
+      return _database = await opening;
+    } finally {
+      _opening = null;
+    }
   }
 
   Future<Database> _initDatabase() async {
     final databasesPath = await getDatabasesPath();
     final path = join(databasesPath, _dbName);
-    return await openDatabase(
-      path,
-      version: _dbVersion,
-      onCreate: _onCreate,
-      onUpgrade: _onUpgrade,
-    );
+    return openAt(path);
+  }
+
+  /// 同一建库/升级入口，可用独立数据库文件验证迁移。
+  Future<Database> openAt(String path, {DatabaseFactory? factory}) {
+    return (factory ?? databaseFactory).openDatabase(path,
+        options: OpenDatabaseOptions(
+          version: _dbVersion,
+          onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
+          onCreate: _onCreate,
+          onUpgrade: _onUpgrade,
+        ));
   }
 
   // ---------- 建表 ----------
@@ -56,6 +68,8 @@ class AppDatabase {
     await _createSmellMomentRecordTable(db);
     await _createCardTriggerRecordsTable(db);
     await _insertDefaultFanScentConfig(db);
+    await RecommendationSchema.migrate(db);
+    await _migrateV10toV11(db);
   }
 
   Future<void> _createScentDiaryNoteTable(Database db) async {
@@ -141,6 +155,8 @@ class AppDatabase {
     if (oldVersion < 7) await _migrateV6toV7(db);
     if (oldVersion < 8) await _migrateV7toV8(db);
     if (oldVersion < 9) await _migrateV8toV9(db);
+    if (oldVersion < 10) await RecommendationSchema.migrate(db);
+    if (oldVersion < 11) await _migrateV10toV11(db);
   }
 
   Future<void> _migrateV2toV3(Database db) async {
@@ -208,6 +224,10 @@ class AppDatabase {
 
   Future<void> _migrateV8toV9(Database db) async {
     await _createCardTriggerRecordsTable(db);
+  }
+
+  Future<void> _migrateV10toV11(Database db) async {
+    await db.execute('ALTER TABLE usage_records ADD COLUMN timer_end_time INTEGER');
   }
 
   // ---------- 通用查询方法 ----------

@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- AI requests require Internet access in release builds. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <application
         android:label="my_perfume_app"
         android:name="${applicationName}"
@@ -51,8 +53,6 @@
 
     <!-- 声明应用需要蓝牙功能，帮助Google Play筛选设备 -->
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
-    <!-- 麦克风权限，用于语音识别 -->
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
          https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.

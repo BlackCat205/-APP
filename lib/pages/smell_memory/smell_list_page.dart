@@ -1,7 +1,6 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../../services/usage_record_service.dart';
+import '../../services/smell_moment_repository.dart';
 
 /// 气味记忆列表页（按日期分组展示）
 class SmellListPage extends StatefulWidget {
@@ -39,16 +38,20 @@ class _SmellListPageState extends State<SmellListPage>
     _loadMemories();
   }
 
-  /// 从 SharedPreferences 加载记忆
+  /// 从 SQLite 加载，与评分及删除使用同一数据源
   Future<void> _loadMemories() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final memoryStrings = prefs.getStringList('smell_memories') ?? [];
-
-      final memories = memoryStrings
-          .map((str) => _parseMemory(str))
-          .where((map) => map.isNotEmpty)
-          .toList();
+      final rows = await SmellMomentRecordService.getAllRecords();
+      final memories = rows.map((row) => <String, dynamic>{
+        'id': row['id'],
+        'title': row['title'],
+        'emoji': row['emotion_emoji'],
+        'note': row['note'],
+        'scene': row['scene_tag'],
+        'recipe': row['scent_combo'],
+        'duration': SmellMomentRepository.formatDuration(row['duration_seconds'] as int?),
+        'timestamp': DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int).toString(),
+      }).toList();
 
       // 按日期分组
       final grouped = <String, List<Map<String, dynamic>>>{};
@@ -62,6 +65,7 @@ class _SmellListPageState extends State<SmellListPage>
 
       final sortedDates = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
 
+      if (!mounted) return;
       setState(() {
         _groupedMemories = grouped;
         _sortedDates = sortedDates;
@@ -69,42 +73,7 @@ class _SmellListPageState extends State<SmellListPage>
       });
     } catch (e) {
       debugPrint('加载记忆失败: $e');
-      setState(() => _isLoading = false);
-    }
-  }
-
-  /// 解析单条记忆（支持 JSON 与旧格式）
-  Map<String, dynamic> _parseMemory(String str) {
-    try {
-      return json.decode(str) as Map<String, dynamic>;
-    } catch (_) {
-      try {
-        return _parseOldMemoryString(str);
-      } catch (e) {
-        debugPrint('解析记忆失败: $e');
-        return {};
-      }
-    }
-  }
-
-  /// 解析旧的键值对记忆字符串
-  Map<String, dynamic> _parseOldMemoryString(String str) {
-    try {
-      final cleanStr = str.substring(1, str.length - 1);
-      final pairs = cleanStr.split(', ');
-      final map = <String, dynamic>{};
-      for (final pair in pairs) {
-        final parts = pair.split(': ');
-        if (parts.length == 2) {
-          final key = parts[0].replaceAll("'", '');
-          final value = parts[1].replaceAll("'", '');
-          map[key] = value;
-        }
-      }
-      return map;
-    } catch (e) {
-      debugPrint('解析旧格式记忆失败: $e');
-      return {};
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -194,28 +163,8 @@ class _SmellListPageState extends State<SmellListPage>
   /// 删除记忆
   void _deleteMemory(Map<String, dynamic> memory) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final memoryStrings = prefs.getStringList('smell_memories') ?? [];
-      final id = memory['id'] as String?;
-      if (id != null) {
-        final updated = memoryStrings.where((str) {
-          try {
-            final map = json.decode(str) as Map<String, dynamic>;
-            return map['id'] != id;
-          } catch (_) {
-            try {
-              final map = _parseOldMemoryString(str);
-              return map['id'] != id;
-            } catch (e) {
-              debugPrint('解析记忆失败: $e');
-              return true;
-            }
-          }
-        }).toList();
-
-        await prefs.setStringList('smell_memories', updated);
-        _loadMemories();
-      }
+      await SmellMomentRecordService.deleteRecord(memory['id'] as int);
+      await _loadMemories();
     } catch (e) {
       debugPrint('删除记忆失败: $e');
       if (mounted) {

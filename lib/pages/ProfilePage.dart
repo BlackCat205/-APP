@@ -5,8 +5,10 @@ import 'LoginPage.dart';
 import 'SystemSettingsPage.dart';
 import 'database_viewer_page.dart';
 import 'scent_library_page.dart';
-import 'AIScentAssistantPage.dart';          // 直接引入，替换原包装器
+import 'AIScentAssistantPage.dart'; // 直接引入，替换原包装器
 import 'smell_memory/smell_list_page.dart';
+import 'scent_profile_page.dart';
+import 'usage_feedback_page.dart';
 
 /// 个人中心页面
 class ProfilePage extends StatefulWidget {
@@ -87,9 +89,9 @@ class _ProfilePageState extends State<ProfilePage> {
 
   void _showSnackBar(String message) {
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
@@ -154,7 +156,11 @@ class _ProfilePageState extends State<ProfilePage> {
                     color: Colors.grey[300],
                   ),
                   child: const Center(
-                    child: Icon(Icons.person, size: _iconSize, color: Colors.grey),
+                    child: Icon(
+                      Icons.person,
+                      size: _iconSize,
+                      color: Colors.grey,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 16),
@@ -163,8 +169,13 @@ class _ProfilePageState extends State<ProfilePage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        isLoggedIn ? userProvider.currentUser!.nickname : '用户昵称',
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        isLoggedIn
+                            ? userProvider.currentUser!.nickname
+                            : '用户昵称',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       const SizedBox(height: 4),
                       Text(
@@ -176,10 +187,10 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
                 isLoggedIn
                     ? IconButton(
-                  icon: const Icon(Icons.logout, color: Colors.grey),
-                  onPressed: _showLogoutDialog,
-                  tooltip: '退出登录',
-                )
+                        icon: const Icon(Icons.logout, color: Colors.grey),
+                        onPressed: _showLogoutDialog,
+                        tooltip: '退出登录',
+                      )
                     : const Icon(Icons.arrow_forward_ios, color: Colors.grey),
               ],
             ),
@@ -198,15 +209,34 @@ class _ProfilePageState extends State<ProfilePage> {
       ),
       child: Column(
         children: [
-          _buildSettingItem('系统设置', onTap: () => _navigateTo(const SystemSettingsPage())),
+          _buildSettingItem(
+            '系统设置',
+            onTap: () => _navigateTo(const SystemSettingsPage()),
+          ),
           _buildDivider(),
           _buildSettingItem('气味记忆', onTap: () => _navigateTo(SmellListPage())),
           _buildDivider(),
-          _buildSettingItem('你的气味库', onTap: () => _navigateTo(const ScentLibraryPage())),
+          _buildSettingItem(
+            '你的气味库',
+            onTap: () => _navigateTo(const ScentLibraryPage()),
+          ),
+          _buildDivider(),
+          _buildSettingItem(
+            '我的气味画像',
+            onTap: () => _navigateTo(const ScentProfilePage()),
+          ),
+          _buildDivider(),
+          _buildSettingItem(
+            '使用反馈记录',
+            onTap: () => _navigateTo(const UsageFeedbackHistoryPage()),
+          ),
           _buildDivider(),
           _buildSettingItem('关于我们', onTap: () {}),
           _buildDivider(),
-          _buildSettingItem('数据库调试', onTap: () => _navigateTo(const DatabaseViewerPage())),
+          _buildSettingItem(
+            '数据库调试',
+            onTap: () => _navigateTo(const DatabaseViewerPage()),
+          ),
           _buildDivider(),
           _buildVersionRow(),
         ],

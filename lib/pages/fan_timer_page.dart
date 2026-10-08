@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/bluetooth_service.dart';
+import 'package:provider/provider.dart';
+import '../services/usage_session_service.dart';
 
 /// 风扇定时关闭页面
 class FanTimerPage extends StatefulWidget {
@@ -251,12 +253,8 @@ class _FanTimerPageState extends State<FanTimerPage> {
     }
 
     final totalMinutes = _totalMinutes;
-    final command = totalMinutes == 0
-        ? 'fan${widget.fanIndex + 1}_cancel'
-        : 'fan${widget.fanIndex + 1}_off_${totalMinutes * 60 * 1000}';
-
     try {
-      await BluetoothService.sendPlainCommand(command);
+      await context.read<UsageSessionService>().setTimer(widget.fanIndex + 1, totalMinutes * 60 * 1000);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(totalMinutes == 0 ? '已取消定时' : '定时设置成功')),

@@ -3,18 +3,18 @@ import 'package:sqflite/sqflite.dart';
 import '../database/app_database.dart';
 import '../models/usage_record.dart';
 import 'fan_scent_service.dart';
+import 'smell_moment_repository.dart';
 
 /// 使用记录服务 — 自动记录单个风扇开关行为
 class UsageRecordService {
+  static final ValueNotifier<int> revision = ValueNotifier(0);
   // ========== 活跃记录缓存 ==========
   static final Map<int, UsageRecord> _activeRecords = {};
 
   // ========== 表/字段常量 ==========
   static const String _table = 'usage_records';
   static const String _colStartTime = 'start_time';
-  static const String _colEndTime = 'end_time';
   static const String _colDuration = 'duration';
-  static const String _colFanId = 'fan_id';
   static const String _colScentName = 'scent_name';
   static const String _colCreatedAt = 'created_at';
 
@@ -24,7 +24,8 @@ class UsageRecordService {
   // ---------- 记录生命周期 ----------
 
   /// 开始记录 — 风扇开启时调用
-  static Future<void> startRecord(int fanId) async {
+  static Future<void> startRecord(int fanId,
+      {String source = 'app_command_unverified'}) async {
     if (fanId < 1 || fanId > 4) return;
 
     try {
@@ -41,6 +42,8 @@ class UsageRecordService {
         fanId: fanId,
         scentName: scentName,
         createdAt: now,
+        source: source,
+        status: 'active_unverified',
       );
       debugPrint('📊 开始记录风扇$fanId: $scentName');
     } catch (e) {
@@ -58,7 +61,7 @@ class UsageRecordService {
       final duration = ((now - record.startTime) / 1000).round();
 
       // 补全结束信息
-      final completed = record.copyWith(endTime: now, duration: duration);
+      final completed = record.copyWith(endTime: now, duration: duration, status: 'completed_unverified');
 
       // 持久化
       final db = await _database;
@@ -162,6 +165,7 @@ class UsageRecordService {
     try {
       final db = await _database;
       await db.delete(_table, where: 'id = ?', whereArgs: [id]);
+      revision.value++;
     } catch (e) {
       debugPrint('删除记录失败: $e');
     }
@@ -173,7 +177,9 @@ class UsageRecordService {
   static Future<int> getTodayTotalDuration() async {
     try {
       final records = await getTodayRecords();
-      return records.fold<int>(0, (sum, r) => sum + (r.duration ?? 0));
+      return SmellMomentRepository.elapsedSeconds(records.where((r) =>
+        r.source != 'test' && r.duration != null &&
+        ['legacy_unknown', 'completed_unverified'].contains(r.status)).toList()) ?? 0;
     } catch (e) {
       debugPrint('获取今日总时长失败: $e');
       return 0;
@@ -184,7 +190,9 @@ class UsageRecordService {
   static Future<int> getWeekTotalDuration() async {
     try {
       final records = await getWeekRecords();
-      return records.fold<int>(0, (sum, r) => sum + (r.duration ?? 0));
+      return SmellMomentRepository.elapsedSeconds(records.where((r) =>
+        r.source != 'test' && r.duration != null &&
+        ['legacy_unknown', 'completed_unverified'].contains(r.status)).toList()) ?? 0;
     } catch (e) {
       debugPrint('获取本周总时长失败: $e');
       return 0;
@@ -266,7 +274,7 @@ class SmellMomentRecordService {
 
   static Future<Database> get _database async => AppDatabase().database;
 
-  /// 插入一条气味瞬间记录
+  /// 保存失败抛出异常，页面不能把失败当作已保存。
   static Future<int> insertRecord({
     String? title,
     String? sceneTag,
@@ -274,55 +282,21 @@ class SmellMomentRecordService {
     String? note,
     String? scentCombo,
     int? score,
-  }) async {
-    try {
-      final db = await _database;
-      final now = DateTime.now().millisecondsSinceEpoch;
-      final id = await db.insert(_table, {
-        'title': title ?? '未命名',
-        'scene_tag': sceneTag,
-        'emotion_emoji': emotionEmoji,
-        'note': note,
-        'scent_combo': scentCombo,
-        'score': score,
-        _colCreatedAt: now,
-      });
-      debugPrint('📝 保存气味瞬间记录: title=$title, scentCombo=$scentCombo, score=$score');
-      return id;
-    } catch (e) {
-      debugPrint('保存气味瞬间记录失败: $e');
-      return -1;
-    }
-  }
+    List<int> usageRecordIds = const [],
+  }) async => SmellMomentRepository(await _database).save(
+    title: title, sceneTag: sceneTag, emotionEmoji: emotionEmoji,
+    note: note, scentCombo: scentCombo, score: score,
+    usageRecordIds: usageRecordIds,
+  );
 
-  /// 查询所有气味瞬间记录（倒序）
-  static Future<List<Map<String, dynamic>>> getAllRecords() async {
-    try {
-      final db = await _database;
-      return await db.query(_table, orderBy: '$_colCreatedAt DESC');
-    } catch (e) {
-      debugPrint('查询气味瞬间记录失败: $e');
-      return [];
-    }
-  }
+  static Future<List<Map<String, dynamic>>> getAllRecords() async =>
+      SmellMomentRepository(await _database).getAll();
 
-  /// 根据使用记录 ID 查询关联的气味瞬间记录（模糊查询 usage_record_ids）
-  static Future<List<Map<String, dynamic>>> getByUsageRecordId(
-      int usageRecordId,
-      ) async {
-    try {
-      final db = await _database;
-      return await db.query(
-        _table,
-        where: 'usage_record_ids LIKE ?',
-        whereArgs: ['%$usageRecordId%'],
-        orderBy: '$_colCreatedAt DESC',
-      );
-    } catch (e) {
-      debugPrint('查询气味瞬间记录失败: $e');
-      return [];
-    }
-  }
+  static Future<List<Map<String, dynamic>>> getByUsageRecordId(int id) async =>
+      SmellMomentRepository(await _database).getByUsageRecordId(id);
+
+  static Future<void> deleteRecord(int id) async =>
+      SmellMomentRepository(await _database).delete(id);
 
   /// 获取最近一次气味瞬间记录的时间戳，若无则返回 0
   static Future<int> getLastMomentRecordTimestamp() async {
@@ -331,6 +305,7 @@ class SmellMomentRecordService {
       final result = await db.query(
         _table,
         columns: [_colCreatedAt],
+        where: "source != 'test'",
         orderBy: '$_colCreatedAt DESC',
         limit: 1,
       );

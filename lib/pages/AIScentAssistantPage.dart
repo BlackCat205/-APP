@@ -1,13 +1,12 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
-import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../database/app_database.dart';
 import '../models/ScentMemory.dart';
 import '../services/ScentMemoryService.dart';
 import '../services/spark_api_service.dart';
+import '../services/ai_api_config.dart';
 import 'ScentMemoryPage.dart';
 
 /// AI 气味助手聊天页面（基于讯飞大模型）。
@@ -30,13 +29,6 @@ class _AIScentAssistantPageState extends State<AIScentAssistantPage> {
   final Uuid _uuid = const Uuid();
   final ScrollController _scrollController = ScrollController();
 
-  // ========== 语音识别 ==========
-  late final stt.SpeechToText _speech;
-  bool _isListening = false;
-  String _transcription = '';
-  bool _speechInitialized = false;
-  final bool _isWindows = Platform.isWindows;
-
   // ========== 常量 ==========
   static const String _chatHistoryKey = 'ai_chat_history';
   static const double _horizontalPadding = 16.0;
@@ -50,9 +42,9 @@ class _AIScentAssistantPageState extends State<AIScentAssistantPage> {
     super.initState();
     _memoryService.init();
     _aiService = SparkApiService(
-      apiPassword: 'GCurjaQCPjWKlJLXUriC:ROflhklEyofwdBnBWyBV',
-      modelName: 'lite',
-      baseUrl: 'https://spark-api-open.xf-yun.com/v1/chat/completions',
+      apiPassword: AiApiConfig.apiPassword,
+      modelName: AiApiConfig.modelName,
+      baseUrl: AiApiConfig.baseUrl,
     );
     _loadChatHistory();
   }
@@ -83,7 +75,9 @@ class _AIScentAssistantPageState extends State<AIScentAssistantPage> {
   Future<void> _saveChatHistory() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final toSave = _messages.length > 100 ? _messages.sublist(_messages.length - 100) : _messages;
+      final toSave = _messages.length > 100
+          ? _messages.sublist(_messages.length - 100)
+          : _messages;
       await prefs.setString(_chatHistoryKey, json.encode(toSave));
     } catch (e) {
       debugPrint('保存聊天记录失败: $e');
@@ -110,64 +104,6 @@ class _AIScentAssistantPageState extends State<AIScentAssistantPage> {
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeOut,
       );
-    });
-  }
-
-  // ========== 语音识别 ==========
-
-  Future<bool> _initSpeech() async {
-    _speech = stt.SpeechToText();
-    try {
-      _speechInitialized = await _speech.initialize(
-        onStatus: (status) {
-          if (status == 'done') _stopListening();
-        },
-        onError: (error) {
-          debugPrint('语音识别错误: $error');
-          _stopListening();
-        },
-      );
-      return _speechInitialized;
-    } catch (e) {
-      debugPrint('语音初始化错误: $e');
-      return false;
-    }
-  }
-
-  void _startListening() async {
-    if (!_speechInitialized) {
-      await _initSpeech();
-      if (!_speechInitialized) return;
-    }
-    setState(() {
-      _isListening = true;
-      _transcription = '';
-    });
-    try {
-      final started = await _speech.listen(
-        onResult: (result) {
-          setState(() => _transcription = result.recognizedWords);
-          if (result.finalResult) _stopListening();
-        },
-        localeId: 'zh_CN',
-        cancelOnError: true,
-        listenMode: stt.ListenMode.dictation,
-      );
-      if (!started) throw Exception('无法开始录音');
-    } catch (e) {
-      debugPrint('开始录音错误: $e');
-      _stopListening();
-    }
-  }
-
-  void _stopListening() {
-    _speech.stop();
-    setState(() {
-      _isListening = false;
-      if (_transcription.isNotEmpty) {
-        _textController.text = _transcription;
-        _sendMessage();
-      }
     });
   }
 
@@ -202,30 +138,43 @@ class _AIScentAssistantPageState extends State<AIScentAssistantPage> {
       final recentMemories = memories.take(5).toList();
 
       for (final m in memories) {
-        if (m.emotion.isNotEmpty) emotionCount[m.emotion] = (emotionCount[m.emotion] ?? 0) + 1;
-        if (m.scent.isNotEmpty) scentCount[m.scent] = (scentCount[m.scent] ?? 0) + 1;
+        if (m.emotion.isNotEmpty)
+          emotionCount[m.emotion] = (emotionCount[m.emotion] ?? 0) + 1;
+        if (m.scent.isNotEmpty)
+          scentCount[m.scent] = (scentCount[m.scent] ?? 0) + 1;
         _extractScenes(m.userInput, sceneCount);
       }
 
-      final topEmotions = emotionCount.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
-      final topScents = scentCount.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
-      final topScenes = sceneCount.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+      final topEmotions = emotionCount.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      final topScents = scentCount.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      final topScenes = sceneCount.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
 
       final buf = StringBuffer();
       buf.writeln('【用户画像】');
       buf.writeln('- 气味记忆总数：${memories.length} 条');
       if (topEmotions.isNotEmpty) {
-        buf.writeln('- 高频情绪：${topEmotions.take(3).map((e) => '${e.key}(${e.value}次)').join('、')}');
+        buf.writeln(
+          '- 高频情绪：${topEmotions.take(3).map((e) => '${e.key}(${e.value}次)').join('、')}',
+        );
       }
       if (topScents.isNotEmpty) {
-        buf.writeln('- 高频气味：${topScents.take(3).map((e) => '${e.key}(${e.value}次)').join('、')}');
+        buf.writeln(
+          '- 高频气味：${topScents.take(3).map((e) => '${e.key}(${e.value}次)').join('、')}',
+        );
       }
       if (topScenes.isNotEmpty) {
         buf.writeln('- 常用场景：${topScenes.take(3).map((e) => e.key).join('、')}');
       }
       if (recentMemories.isNotEmpty) {
-        final recentScents = recentMemories.map((m) => m.scent).where((s) => s.isNotEmpty).toList();
-        if (recentScents.isNotEmpty) buf.writeln('- 最近偏好：${recentScents.take(3).join('、')}');
+        final recentScents = recentMemories
+            .map((m) => m.scent)
+            .where((s) => s.isNotEmpty)
+            .toList();
+        if (recentScents.isNotEmpty)
+          buf.writeln('- 最近偏好：${recentScents.take(3).join('、')}');
       }
       return buf.toString();
     } catch (e) {
@@ -235,10 +184,14 @@ class _AIScentAssistantPageState extends State<AIScentAssistantPage> {
   }
 
   void _extractScenes(String input, Map<String, int> sceneCount) {
-    if (input.contains('睡前') || input.contains('睡觉')) sceneCount['睡前'] = (sceneCount['睡前'] ?? 0) + 1;
-    if (input.contains('作业') || input.contains('学习')) sceneCount['写作业'] = (sceneCount['写作业'] ?? 0) + 1;
-    if (input.contains('午休') || input.contains('午睡')) sceneCount['午休'] = (sceneCount['午休'] ?? 0) + 1;
-    if (input.contains('工作') || input.contains('办公')) sceneCount['工作'] = (sceneCount['工作'] ?? 0) + 1;
+    if (input.contains('睡前') || input.contains('睡觉'))
+      sceneCount['睡前'] = (sceneCount['睡前'] ?? 0) + 1;
+    if (input.contains('作业') || input.contains('学习'))
+      sceneCount['写作业'] = (sceneCount['写作业'] ?? 0) + 1;
+    if (input.contains('午休') || input.contains('午睡'))
+      sceneCount['午休'] = (sceneCount['午休'] ?? 0) + 1;
+    if (input.contains('工作') || input.contains('办公'))
+      sceneCount['工作'] = (sceneCount['工作'] ?? 0) + 1;
   }
 
   Future<String> _getPersonalScentLibrary() async {
@@ -250,7 +203,7 @@ class _AIScentAssistantPageState extends State<AIScentAssistantPage> {
       for (final scene in scenes) {
         final records = await db.query(
           'smell_moment_record',
-          where: 'scene_tag = ?',
+          where: "scene_tag = ? AND source != 'test'",
           whereArgs: [scene],
           orderBy: 'score DESC',
           limit: 1,
@@ -285,7 +238,7 @@ class _AIScentAssistantPageState extends State<AIScentAssistantPage> {
       final personalLibrary = await _getPersonalScentLibrary();
 
       const systemPrompt =
-      '''你是APP专属「气味疗愈助手」，**必须严格按以下 4 步回复**，并**优先结合用户个人气味库**做个性化推荐：
+          '''你是APP专属「气味疗愈助手」，**必须严格按以下 4 步回复**，并**优先结合用户个人气味库**做个性化推荐：
 
 1. 情绪识别：根据用户输入，精准识别情绪（疲惫/焦虑/低落/失眠/放松）
 2. 气味推荐：**优先推荐用户个人气味库中该场景评分最高的气味组合**，其次匹配情绪功效；必须给出 1-2 种具体香气+功效
@@ -298,7 +251,8 @@ class _AIScentAssistantPageState extends State<AIScentAssistantPage> {
 【场景建议】xxx
 【使用指引】xxx''';
 
-      final fullPrompt = '$systemPrompt\n'
+      final fullPrompt =
+          '$systemPrompt\n'
           '${userProfile.isNotEmpty ? '$userProfile\n' : ''}'
           '${personalLibrary.isNotEmpty ? '$personalLibrary\n' : ''}'
           '用户当前输入：$text\n'
@@ -373,11 +327,6 @@ class _AIScentAssistantPageState extends State<AIScentAssistantPage> {
                 padding: EdgeInsets.all(8.0),
                 child: CircularProgressIndicator(),
               ),
-            if (_isListening)
-              const Padding(
-                padding: EdgeInsets.all(8.0),
-                child: Text('正在聆听...', style: TextStyle(color: Colors.blue)),
-              ),
             _buildInputArea(context),
           ],
         ),
@@ -387,7 +336,10 @@ class _AIScentAssistantPageState extends State<AIScentAssistantPage> {
 
   Widget _buildHeaderBar() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: _horizontalPadding, vertical: _verticalPadding),
+      padding: const EdgeInsets.symmetric(
+        horizontal: _horizontalPadding,
+        vertical: _verticalPadding,
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
@@ -496,7 +448,10 @@ class _AIScentAssistantPageState extends State<AIScentAssistantPage> {
           color: Colors.grey.shade100,
           borderRadius: BorderRadius.circular(_messageRadius),
         ),
-        child: Text(error, style: const TextStyle(fontSize: 16, color: Colors.red)),
+        child: Text(
+          error,
+          style: const TextStyle(fontSize: 16, color: Colors.red),
+        ),
       ),
     );
   }
@@ -515,20 +470,39 @@ class _AIScentAssistantPageState extends State<AIScentAssistantPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (data.containsKey('emotion'))
-              Text('情绪: ${data['emotion']}',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              Text(
+                '情绪: ${data['emotion']}',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             if (data.containsKey('emotion')) const SizedBox(height: 4),
-            Text('推荐气味: ${data['scent']}',
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            Text(
+              '推荐气味: ${data['scent']}',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 4),
             if (data.containsKey('effect'))
-              Text('功效: ${data['effect']}', style: const TextStyle(fontSize: 16)),
+              Text(
+                '功效: ${data['effect']}',
+                style: const TextStyle(fontSize: 16),
+              ),
             if (data.containsKey('category'))
-              Text('香气风格: ${data['category']}', style: const TextStyle(fontSize: 16)),
+              Text(
+                '香气风格: ${data['category']}',
+                style: const TextStyle(fontSize: 16),
+              ),
             if (data.containsKey('reason'))
-              Text('推荐理由: ${data['reason']}', style: const TextStyle(fontSize: 16)),
+              Text(
+                '推荐理由: ${data['reason']}',
+                style: const TextStyle(fontSize: 16),
+              ),
             if (data.containsKey('scene'))
-              Text('适用场景: ${data['scene']}', style: const TextStyle(fontSize: 16)),
+              Text(
+                '适用场景: ${data['scene']}',
+                style: const TextStyle(fontSize: 16),
+              ),
           ],
         ),
       ),
@@ -559,32 +533,9 @@ class _AIScentAssistantPageState extends State<AIScentAssistantPage> {
             ),
           ),
           const SizedBox(width: 12),
-          if (!_isWindows) _buildMicButton(),
-          const SizedBox(width: 8),
           _buildSendButton(),
         ],
       ),
-    );
-  }
-
-  Widget _buildMicButton() {
-    return ElevatedButton(
-      onPressed: _isListening ? _stopListening : _startListening,
-      style: ElevatedButton.styleFrom(
-        shape: const CircleBorder(),
-        padding: const EdgeInsets.all(16),
-        backgroundColor: _isListening ? Colors.red : Colors.blue,
-      ),
-      child: _isListening
-          ? const SizedBox(
-        width: 24,
-        height: 24,
-        child: CircularProgressIndicator(
-          strokeWidth: 2,
-          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-        ),
-      )
-          : const Icon(Icons.mic, color: Colors.white),
     );
   }
 
@@ -625,15 +576,15 @@ class _AIScentAssistantPageState extends State<AIScentAssistantPage> {
         'device_available': data['deviceAvailable'] == true ? 1 : 0,
       });
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('已保存到气味记忆')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('已保存到气味记忆')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('保存失败，请重试')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('保存失败，请重试')));
       }
     }
   }

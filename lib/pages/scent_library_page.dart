@@ -59,7 +59,7 @@ class _ScentLibraryPageState extends State<ScentLibraryPage> {
       for (final scene in _scenes) {
         final records = await db.query(
           'smell_moment_record',
-          where: 'scene_tag = ?',
+          where: "scene_tag = ? AND source != 'test'",
           whereArgs: [scene],
           orderBy: 'score DESC',
           limit: 1,
@@ -94,7 +94,7 @@ class _ScentLibraryPageState extends State<ScentLibraryPage> {
 
   Future<int> _getSceneRecordCount(Database db, String scene) async {
     final result = await db.rawQuery(
-      'SELECT COUNT(*) as count FROM smell_moment_record WHERE scene_tag = ?',
+      "SELECT COUNT(*) as count FROM smell_moment_record WHERE scene_tag = ? AND source != 'test'",
       [scene],
     );
     return result.first['count'] as int? ?? 0;

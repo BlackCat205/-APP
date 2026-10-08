@@ -8,7 +8,19 @@ class BluetoothService {
   // ---------- 静态实例 ----------
   static fb.BluetoothDevice? _device;
   static fb.BluetoothCharacteristic? _writeChar;
-  static bool isConnected = false;
+  static final ValueNotifier<bool> connection = ValueNotifier(false);
+  static bool get isConnected => connection.value;
+  static StreamSubscription<fb.BluetoothConnectionState>? _connectionSubscription;
+
+  static void _watchConnection(fb.BluetoothDevice device) {
+    _connectionSubscription?.cancel();
+    _connectionSubscription = device.connectionState.listen((state) {
+      if (state == fb.BluetoothConnectionState.disconnected) {
+        _writeChar = null;
+        connection.value = false;
+      }
+    });
+  }
 
   // ---------- UUID 常量 ----------
   static const String _serviceUuid =
@@ -20,13 +32,13 @@ class BluetoothService {
 
   /// 向已连接设备发送原始字节数据（带响应写入）
   static Future<void> _sendBytes(List<int> bytes) async {
-    if (_writeChar == null) {
+    if (!isConnected || _writeChar == null) {
       const err = '未连接设备或特征未找到，_writeChar 为空';
       debugPrint(err);
       throw Exception(err);
     }
     try {
-      await _writeChar!.write(bytes, withoutResponse: false);
+      await _writeChar!.write(bytes, withoutResponse: false).timeout(const Duration(seconds: 10));
       debugPrint('✅ 写入成功: $bytes');
     } catch (e) {
       debugPrint('❌ 写入失败: $e');
@@ -98,12 +110,13 @@ class BluetoothService {
     await fb.FlutterBluePlus.startScan(timeout: const Duration(seconds: 5));
 
     final completer = Completer<bool>();
+    fb.BluetoothDevice? selected;
     late final StreamSubscription<List<fb.ScanResult>> subscription;
 
     subscription = fb.FlutterBluePlus.scanResults.listen((results) {
       for (final result in results) {
         if (result.device.name == targetName) {
-          _device = result.device;
+          selected = result.device;
           fb.FlutterBluePlus.stopScan();
           subscription.cancel();
           completer.complete(true);
@@ -124,21 +137,27 @@ class BluetoothService {
     final found = await completer.future;
     if (!found) return false;
 
-    await _device!.connect();
-    await _discoverServices();
-    isConnected = true;
-    return true;
+    return connectToDeviceByDevice(selected!);
   }
 
   /// 直接连接给定的蓝牙设备对象
   static Future<bool> connectToDeviceByDevice(fb.BluetoothDevice device) async {
+    if (_device != null && _device != device) await disconnect();
     _device = device;
-    debugPrint('正在连接设备: ${device.name}');
-    await _device!.connect();
-    await _discoverServices();
-    isConnected = true;
-    debugPrint('设备连接并服务发现完成');
-    return true;
+    _writeChar = null;
+    connection.value = false;
+    try {
+      await device.connect();
+      _watchConnection(device);
+      await _discoverServices();
+      if (!device.isConnected) throw StateError('服务发现期间连接已断开');
+      connection.value = true;
+      return true;
+    } catch (_) {
+      _writeChar = null;
+      connection.value = false;
+      rethrow;
+    }
   }
 
   /// 发现目标服务与特征
@@ -174,7 +193,9 @@ class BluetoothService {
   /// 断开连接并清理资源
   static Future<void> disconnect() async {
     await _device?.disconnect();
-    isConnected = false;
+    connection.value = false;
+    await _connectionSubscription?.cancel();
+    _connectionSubscription = null;
     _writeChar = null;
     _device = null;
   }

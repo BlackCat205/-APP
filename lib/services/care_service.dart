@@ -26,6 +26,7 @@ class CareService {
       final db = await AppDatabase().database;
       final records = await db.query(
         'smell_moment_record',
+        where: "source != 'test'",
         orderBy: 'created_at DESC',
       );
 

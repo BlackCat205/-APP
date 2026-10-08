@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/fan_scent_service.dart';
+import 'package:provider/provider.dart';
+import '../services/usage_session_service.dart';
 
 /// 风扇气味配置页面
 class FanScentConfigPage extends StatefulWidget {
@@ -39,7 +41,17 @@ class _FanScentConfigPageState extends State<FanScentConfigPage> {
   }
 
   Future<void> _saveConfig() async {
-    await FanScentService.setAllFanScents(_fanScents);
+    final sessions = context.read<UsageSessionService>();
+    if (sessions.hasActiveSession || sessions.busy) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请先结束当前使用，再更换气味配置')));
+      return;
+    }
+    try {
+      await FanScentService.setAllFanScents(_fanScents);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('配置保存失败: $e')));
+      return;
+    }
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('配置已保存')),

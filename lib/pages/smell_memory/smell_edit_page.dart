@@ -1,9 +1,7 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../services/usage_record_service.dart';
+import '../../services/smell_moment_repository.dart';
 
 /// 气味瞬间编辑页
 class SmellEditPage extends StatefulWidget {
@@ -33,9 +31,8 @@ class _SmellEditPageState extends State<SmellEditPage> {
   static const List<String> _emojis = ['😌', '🥰', '😭', '😤', '😴'];
   static const List<String> _scenes = ['下班回家', '工作学习', '睡前', '周末放松', '其他'];
 
-  // ========== 固定数据（演示用） ==========
-  static const String _duration = '00:30:00';
-  static const List<String> _recipe = ['薰衣草', '檀香', '雪松'];
+  String _duration = '未记录';
+  bool _isSaving = false;
 
   // ========== 样式常量 ==========
   static const Color _bgColor = Color(0xFFF5F0EB);
@@ -62,25 +59,27 @@ class _SmellEditPageState extends State<SmellEditPage> {
     super.dispose();
   }
 
-  /// 加载风扇气味配置（优先使用传入列表，其次从数据库按 ID 查询）
+  /// 优先读取实际使用快照；没有关联记录时才显示手动传入的气味。
   void _loadFanScents() async {
-    if (widget.scentList != null && widget.scentList!.isNotEmpty) {
-      setState(() => _scentCombo = widget.scentList!.join('/'));
-      return;
-    }
-
     try {
       final records = await UsageRecordService.getRecordsByIds(widget.usageRecordIds);
-      final scentMap = <int, String>{};
+      final scents = <String>{};
       for (final record in records) {
         if (record.scentName != null && record.scentName!.isNotEmpty) {
-          scentMap.putIfAbsent(record.fanId, () => record.scentName!);
+          scents.add(record.scentName!);
         }
       }
-      setState(() => _scentCombo = scentMap.values.join('/'));
+      if (!mounted) return;
+      setState(() {
+        _scentCombo = records.isNotEmpty
+            ? scents.join('/')
+            : (widget.scentList ?? <String>[]).join('/');
+        _duration = SmellMomentRepository.formatDuration(
+            SmellMomentRepository.elapsedSeconds(records));
+      });
     } catch (e) {
       debugPrint('加载气味配置失败: $e');
-      setState(() => _scentCombo = '薰衣草/檀香/雪松/甜橙');
+      if (mounted) setState(() => _scentCombo = '');
     }
   }
 
@@ -316,7 +315,7 @@ class _SmellEditPageState extends State<SmellEditPage> {
           const SizedBox(height: 8),
           _infoRow('⏱ ', _duration),
           const SizedBox(height: 8),
-          _infoRow('🧪 ', _recipe.join('/')),
+          _infoRow('🧪 ', _scentCombo.isEmpty ? '未记录' : _scentCombo),
         ],
       ),
     );
@@ -344,7 +343,7 @@ class _SmellEditPageState extends State<SmellEditPage> {
       child: SizedBox(
         width: double.infinity,
         child: ElevatedButton(
-          onPressed: _saveSmellMemory,
+          onPressed: _isSaving ? null : _saveSmellMemory,
           style: ElevatedButton.styleFrom(
             backgroundColor: _accentGreen,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(_defaultRadius)),
@@ -415,24 +414,9 @@ class _SmellEditPageState extends State<SmellEditPage> {
   // ========== 保存逻辑 ==========
 
   void _saveSmellMemory() async {
+    if (_isSaving) return;
+    setState(() => _isSaving = true);
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final existingMemories = prefs.getStringList('smell_memories') ?? [];
-
-      final newMemory = {
-        'id': DateTime.now().millisecondsSinceEpoch.toString(),
-        'title': _titleController.text.isEmpty ? '未命名' : _titleController.text,
-        'emoji': _selectedEmoji ?? '',
-        'note': _noteController.text,
-        'timestamp': DateTime.now().toString(),
-        'scene': _selectedScene ?? '下班回家',
-        'duration': _duration,
-        'recipe': _recipe.join(','),
-      };
-
-      existingMemories.add(json.encode(newMemory));
-      await prefs.setStringList('smell_memories', existingMemories);
-
       await SmellMomentRecordService.insertRecord(
         title: _titleController.text.isEmpty ? '未命名' : _titleController.text,
         sceneTag: _selectedScene,
@@ -440,12 +424,14 @@ class _SmellEditPageState extends State<SmellEditPage> {
         note: _noteController.text,
         scentCombo: _scentCombo,
         score: _selectedScore,
+        usageRecordIds: widget.usageRecordIds,
       );
 
       if (mounted) Navigator.pushReplacementNamed(context, '/');
     } catch (e) {
       debugPrint('保存失败: $e');
       if (mounted) {
+        setState(() => _isSaving = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('保存失败，请重试')),
         );
